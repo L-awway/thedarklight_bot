@@ -16,7 +16,7 @@ bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 # ВСТАВЬТЕ ССЫЛКУ НА ВАШУ ТАБЛИЦУ GOOGLE SHEETS
-db = Database("https://docs.google.com/spreadsheets/d/ВАШ_ID_ТАБЛИЦЫ/edit")
+db = Database("https://docs.google.com/spreadsheets/d/1vJhwzESOG75Y-_v_kRXr5OBJbNZgHhoCQJtkW9mF688/edit")
 scheduler = Scheduler(bot, db)
 
 def is_admin(username):
