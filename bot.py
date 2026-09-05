@@ -5,12 +5,11 @@ import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from datetime import datetime, timedelta
-import pytz
 
 # ===================================================
 # 1. НАСТРОЙКИ (ПОМЕНЯЙ ТОКЕН)
 # ===================================================
-BOT_TOKEN = "8983642305:AAHjcQafXP0QPEgl0TQebRXWOud347-HcyI"  # <--- ОБЯЗАТЕЛЬНО ПОМЕНЯЙ
+BOT_TOKEN = "8983642305:AAHjcQafXP0QPEgl0TQebRXWOud347-HcyI"
 CHAT_ID = -1002734456748
 ADMINS = ["polllllllllllllllivi", "DanielDerecha", "Dasyero"]
 
@@ -18,10 +17,8 @@ MAX_SCORE = 16
 LOW_SCORE_THRESHOLD = 10
 MAX_WARNINGS = 3
 MAX_SKIPS = 3
-TIMEZONE = "Asia/Omsk"
-DATA_FILE = "data.json"  # файл для хранения данных
-
-TZ = pytz.timezone(TIMEZONE)
+TIMEZONE_OFFSET = 6  # Омск UTC+6
+DATA_FILE = "data.json"
 
 # ===================================================
 # 2. РАБОТА С ДАННЫМИ (JSON)
@@ -41,27 +38,31 @@ db = load_data()
 users = db["users"]
 
 # ===================================================
-# 3. ДАТА И СЕЗОНЫ
+# 3. ДАТА И СЕЗОНЫ (БЕЗ PYTZ)
 # ===================================================
+def get_omsk_time():
+    """Возвращает текущее время по Омску (UTC+6)"""
+    return datetime.utcnow() + timedelta(hours=TIMEZONE_OFFSET)
+
 def get_season_day():
     """Возвращает номер дня в сезоне (1-31)"""
-    now = datetime.now(TZ)
+    now = get_omsk_time()
     # Сезон начинается 5-го числа в 03:00
     if now.day >= 5 or (now.day == 5 and now.hour >= 3):
-        season_start = datetime(now.year, now.month, 5, 3, 0, tzinfo=TZ)
+        season_start = datetime(now.year, now.month, 5, 3, 0)
         day_num = (now - season_start).days + 1
     else:
         # Если 1-4 число, сезон начался в прошлом месяце
         if now.month == 1:
-            season_start = datetime(now.year - 1, 12, 5, 3, 0, tzinfo=TZ)
+            season_start = datetime(now.year - 1, 12, 5, 3, 0)
         else:
-            season_start = datetime(now.year, now.month - 1, 5, 3, 0, tzinfo=TZ)
+            season_start = datetime(now.year, now.month - 1, 5, 3, 0)
         day_num = (now - season_start).days + 1
     return min(day_num, 31)
 
 def is_deadline_passed():
     """Проверяет, прошёл ли дедлайн сегодня (02:59 по Омску)"""
-    now = datetime.now(TZ)
+    now = get_omsk_time()
     deadline = now.replace(hour=2, minute=59, second=0, microsecond=0)
     return now > deadline
 
@@ -471,7 +472,7 @@ async def reset_season(message: types.Message):
 
 async def check_and_notify():
     """Проверяет каждую минуту, нужно ли уведомлять"""
-    now = datetime.now(TZ)
+    now = get_omsk_time()
     deadline = now.replace(hour=2, minute=59, second=0, microsecond=0)
     time_left = (deadline - now).total_seconds() / 3600  # часов до дедлайна
 
