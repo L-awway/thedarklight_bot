@@ -82,18 +82,18 @@ async def start_cmd(message: types.Message):
     await message.reply(
         "👋 Бот клана The Dark Wars\n\n"
         "📌 Команды:\n"
-        "!и 14 — сдать отчёт\n"
-        "!я — моя статистика\n"
-        "!топ — топ-5 клана\n"
-        "!стата @Nick — статистика игрока\n"
-        "!прогулы — список прогульщиков\n"
-        "!предупреждения — кто часто <10 очков\n\n"
+        "/и 14 — сдать отчёт\n"
+        "/я — моя статистика\n"
+        "/топ — топ-5 клана\n"
+        "/стата @Nick — статистика игрока\n"
+        "/прогулы — список прогульщиков\n"
+        "/предупреждения — кто часто <10 очков\n\n"
         "👑 Админы:\n"
-        "!добавить @Nick\n"
-        "!удалить @Nick\n"
-        "!зарегистрировать @Nick1 @Nick2 ...\n"
-        "!исправить @Nick 14\n"
-        "!состав"
+        "/добавить @Nick\n"
+        "/удалить @Nick\n"
+        "/зарегистрировать @Nick1 @Nick2 ...\n"
+        "/исправить @Nick 14\n"
+        "/состав"
     )
 
 @dp.message(Command("и"))
@@ -191,27 +191,6 @@ async def report_score(message: types.Message):
         await message.reply(f"✅ {target_username} — {score}/{MAX_SCORE}!")
 
     save_data(db)
-
-@dp.message(Command("я"))
-async def my_stats(message: types.Message):
-    user_id = str(message.from_user.id)
-    if user_id not in users:
-        await message.reply("❌ Нет данных. Сдайте отчёт: !и 14")
-        return
-    
-    data = users[user_id]
-    scores = [s for s in data["history"].values() if s is not None]
-    total = sum(scores) if scores else 0
-    avg = round(total / len(scores), 1) if scores else 0
-    
-    await message.reply(
-        f"📊 Статистика {data['username']}:\n"
-        f"Сегодня: {data['today_score']}/{MAX_SCORE}\n"
-        f"Прогулов: {data['skips']}/{MAX_SKIPS}\n"
-        f"Предупреждений: {data['warnings']} (из {MAX_WARNINGS})\n"
-        f"Средний балл: {avg}\n"
-        f"Дней в сезоне: {len(scores)}"
-    )
 
 @dp.message(Command("топ"))
 async def top_cmd(message: types.Message):
