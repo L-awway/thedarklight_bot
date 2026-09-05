@@ -216,3 +216,22 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Google service account keys (ВАЖНО!)
+creds.json
+*.key.json
+
+# Локальные базы данных
+*.db
+*.sqlite
+*.sqlite3
+
+# Логи бота
+logs/
+*.log
+
+# Временные файлы
+temp/
+tmp/
+
+
