@@ -103,7 +103,6 @@ async def start_cmd(message: types.Message):
 @dp.message(Command("и"))
 async def report_score(message: types.Message):
     user_id = str(message.from_user.id)
-    username = "@" + message.from_user.username if message.from_user.username else f"User{user_id}"
     args = message.text.split()
     
     # Проверка на дедлайн
@@ -111,10 +110,8 @@ async def report_score(message: types.Message):
         await message.reply("❗ Дедлайн уже прошёл! Отчёт за сегодня не принимается.")
         return
 
-    # Проверяем, кому пишем (себе или за другого)
     target_username = None
     if len(args) >= 3 and args[1].startswith("@"):
-        # Формат: !и @Nick 14
         if message.from_user.username not in ADMINS:
             await message.reply("⛔ Только админы могут писать за других.")
             return
@@ -125,7 +122,6 @@ async def report_score(message: types.Message):
             await message.reply("❗ Используйте: /и @Nick 14")
             return
     else:
-        # Формат: !и 14
         if len(args) < 2:
             await message.reply("❗ Используйте: /и 14")
             return
@@ -134,34 +130,43 @@ async def report_score(message: types.Message):
         except:
             await message.reply("❗ Используйте: /и 14")
             return
-        target_username = username
+        
+        if user_id not in users:
+            username = "@" + message.from_user.username if message.from_user.username else f"User{user_id[:4]}"
+            users[user_id] = {
+                "username": username,
+                "today_score": 0,
+                "warnings": 0,
+                "skips": 0,
+                "history": {str(d): None for d in range(1, 32)}
+            }
+            save_data(db)
+        target_username = users[user_id]["username"]
 
     if score < 0 or score > MAX_SCORE:
         await message.reply(f"❗ Очки должны быть от 0 до {MAX_SCORE}")
         return
 
-    # Ищем пользователя по username
-    found_user_id = None
-    for uid, data in users.items():
-        if data["username"] == target_username:
-            found_user_id = uid
-            break
+    target_user_id = None
+    if len(args) >= 3 and args[1].startswith("@"):
+        for uid, data in users.items():
+            if data["username"] == target_username:
+                target_user_id = uid
+                break
+        if target_user_id is None:
+            target_user_id = f"user_{len(users) + 1}"
+            users[target_user_id] = {
+                "username": target_username,
+                "today_score": 0,
+                "warnings": 0,
+                "skips": 0,
+                "history": {str(d): None for d in range(1, 32)}
+            }
+            save_data(db)
+    else:
+        target_user_id = user_id
 
-    if found_user_id is None:
-        # Новый пользователь
-        found_user_id = f"user_{len(users) + 1}"
-        users[found_user_id] = {
-            "username": target_username,
-            "today_score": 0,
-            "warnings": 0,
-            "skips": 0,
-            "history": {}
-        }
-        # Добавляем пустые дни для текущего сезона
-        for d in range(1, 32):
-            users[found_user_id]["history"][str(d)] = None
-
-    user_data = users[found_user_id]
+    user_data = users[target_user_id]
     day_num = str(get_season_day())
 
     # Проверка: если сегодня уже сдал
@@ -174,14 +179,16 @@ async def report_score(message: types.Message):
     user_data["today_score"] = score
     save_data(db)
 
-    # Логика предупреждений и прогулов
+    # ===== НОВАЯ ЛОГИКА ПРЕДУПРЕЖДЕНИЙ =====
+    # score == 0 — это НЕ прогул, а просто 0 очков (проиграл все бои)
     if score == 0:
-        user_data["skips"] += 1
-        await message.reply(f"❌ {target_username} — 0 очков! Прогул #{user_data['skips']}")
-        if user_data["skips"] > MAX_SKIPS:
+        # 0 очков — не прогул, но меньше 10, поэтому считаем как предупреждение
+        user_data["warnings"] += 1
+        await message.reply(f"😅 {user_data['username']} — 0 очков! Неудачный день. Предупреждение #{user_data['warnings']}")
+        if user_data["warnings"] >= MAX_WARNINGS:
             await bot.send_message(
                 CHAT_ID,
-                f"🚨 {target_username} — {user_data['skips']} прогулов! Порог превышен. Решение за администрацией."
+                f"⚠️ {user_data['username']} — {user_data['warnings']} дней с результатом <10! Работаем над колодой."
             )
     elif score < LOW_SCORE_THRESHOLD:
         user_data["warnings"] += 1
@@ -189,13 +196,13 @@ async def report_score(message: types.Message):
         if user_data["warnings"] >= MAX_WARNINGS:
             await bot.send_message(
                 CHAT_ID,
-                f"⚠️ {target_username} — {user_data['warnings']} дней с результатом <10! Работаем над колодой."
+                f"⚠️ {user_data['username']} — {user_data['warnings']} дней с результатом <10! Работаем над колодой."
             )
     else:
-        await message.reply(f"✅ {target_username} — {score}/{MAX_SCORE}!")
+        await message.reply(f"✅ {user_data['username']} — {score}/{MAX_SCORE}!")
 
     save_data(db)
-
+    
 @dp.message(Command("топ"))
 async def top_cmd(message: types.Message):
     if not users:
