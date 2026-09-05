@@ -61,10 +61,14 @@ def get_season_day():
     return min(day_num, 31)
 
 def is_deadline_passed():
-    """Проверяет, прошёл ли дедлайн сегодня"""
+    """Проверяет, можно ли сдавать отчёт за сегодня"""
     now = get_omsk_time()
-    deadline = now.replace(hour=2, minute=59, second=0, microsecond=0)
-    return now > deadline
+    # Если сейчас 03:00 или позже — сегодняшний день уже начался
+    if now.hour >= 3:
+        return False  # Можно сдавать за сегодня
+    else:
+        # Если сейчас 00:00 - 02:59 — это ещё вчерашний игровой день
+        return True   # Нельзя сдавать за вчера
 
 # ===================================================
 # 4. БОТ
