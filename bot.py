@@ -201,6 +201,10 @@ async def set_deputy(message: types.Message):
     # Обновляем в .env (нужно перезапустить бота)
     await message.reply(f"✅ {username} назначен заместителем.\n⚠️ Нужно обновить переменную DEPUTY в .env и перезапустить бота!")
 
+@dp.message()
+async def echo(message: types.Message):
+    await message.reply(f"Я получил: {message.text}")
+
 async def main():
     print("🚀 Бот запущен!")
     await dp.start_polling(bot)
