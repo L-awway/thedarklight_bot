@@ -61,7 +61,7 @@ def get_season_day():
     return min(day_num, 31)
 
 def is_deadline_passed():
-    """Проверяет, прошёл ли дедлайн сегодня (02:59 по Омску)"""
+    """Проверяет, прошёл ли дедлайн сегодня"""
     now = get_omsk_time()
     deadline = now.replace(hour=2, minute=59, second=0, microsecond=0)
     return now > deadline
@@ -104,7 +104,7 @@ async def report_score(message: types.Message):
     
     # Проверка на дедлайн
     if is_deadline_passed():
-        await message.reply("❗ Дедлайн (02:59 по Омску) уже прошёл! Отчёт за сегодня не принимается.")
+        await message.reply("❗ Дедлайн уже прошёл! Отчёт за сегодня не принимается.")
         return
 
     # Проверяем, кому пишем (себе или за другого)
@@ -118,17 +118,17 @@ async def report_score(message: types.Message):
         try:
             score = int(args[2])
         except:
-            await message.reply("❗ Используйте: !и @Nick 14")
+            await message.reply("❗ Используйте: /и @Nick 14")
             return
     else:
         # Формат: !и 14
         if len(args) < 2:
-            await message.reply("❗ Используйте: !и 14")
+            await message.reply("❗ Используйте: /и 14")
             return
         try:
             score = int(args[1])
         except:
-            await message.reply("❗ Используйте: !и 14")
+            await message.reply("❗ Используйте: /и 14")
             return
         target_username = username
 
@@ -219,7 +219,7 @@ async def top_cmd(message: types.Message):
 async def player_stats(message: types.Message):
     args = message.text.split()
     if len(args) < 2:
-        await message.reply("❗ Используйте: !стата @Nickname")
+        await message.reply("❗ Используйте: /стата @Nickname")
         return
     
     username = args[1]
@@ -288,7 +288,7 @@ async def add_user(message: types.Message):
     
     args = message.text.split()
     if len(args) < 2:
-        await message.reply("❗ Используйте: !добавить @Nickname")
+        await message.reply("❗ Используйте: /добавить @Nickname")
         return
     
     username = args[1]
@@ -321,7 +321,7 @@ async def register_many(message: types.Message):
     
     args = message.text.split()[1:]
     if not args:
-        await message.reply("❗ Используйте: !зарегистрировать @Nick1 @Nick2 ...")
+        await message.reply("❗ Используйте: /зарегистрировать @Nick1 @Nick2 ...")
         return
     
     count = 0
@@ -359,7 +359,7 @@ async def remove_user(message: types.Message):
     
     args = message.text.split()
     if len(args) < 2:
-        await message.reply("❗ Используйте: !удалить @Nickname")
+        await message.reply("❗ Используйте: /удалить @Nickname")
         return
     
     username = args[1]
@@ -383,7 +383,7 @@ async def fix_score(message: types.Message):
     
     args = message.text.split()
     if len(args) < 3:
-        await message.reply("❗ Используйте: !исправить @Nickname 14")
+        await message.reply("❗ Используйте: /исправить @Nickname 14")
         return
     
     username = args[1]
@@ -396,7 +396,7 @@ async def fix_score(message: types.Message):
             await message.reply(f"❗ Очки должны быть от 0 до {MAX_SCORE}")
             return
     except:
-        await message.reply("❗ Введите число, например: !исправить @Nick 14")
+        await message.reply("❗ Введите число, например: /исправить @Nick 14")
         return
     
     for uid, data in users.items():
@@ -481,7 +481,7 @@ async def check_and_notify():
     # Формируем сообщение
     if notify_hours in ["6", "3"]:
         # Общее сообщение в чат
-        msg = f"⏰ Через {notify_hours} часа дедлайн (02:59 по Омску)!\nНе отчитались:\n" + "\n".join(missing)
+        msg = f"⏰ Через {notify_hours} часа дедлайн!\nНе отчитались:\n" + "\n".join(missing)
         await bot.send_message(CHAT_ID, msg)
     else:
         # Персональные теги в чат
@@ -493,7 +493,7 @@ async def check_and_notify():
             try:
                 await bot.send_message(
                     username,
-                    f"⏰ Дедлайн через {notify_hours} часа! Сдай отчёт: !и 14"
+                    f"⏰ Дедлайн через {notify_hours} часа! Сдай отчёт: /и 14"
                 )
             except:
                 pass  # если у пользователя закрыт бот
@@ -515,7 +515,7 @@ async def notification_loop():
     """Проверяет уведомления каждую минуту"""
     while True:
         await check_and_notify()
-        await asyncio.sleep(60)  # 1 минута
+        await asyncio.sleep(3600)  # 1 минута
 
 if __name__ == "__main__":
     asyncio.run(main())
