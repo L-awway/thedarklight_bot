@@ -17,7 +17,7 @@ MAX_SCORE = 16
 LOW_SCORE_THRESHOLD = 10
 MAX_WARNINGS = 3
 MAX_SKIPS = 3
-TIMEZONE_OFFSET = 6  # Омск UTC+6
+TIMEZONE_OFFSET = 3
 DATA_FILE = "data.json"
 
 # ===================================================
@@ -40,35 +40,32 @@ users = db["users"]
 # ===================================================
 # 3. ДАТА И СЕЗОНЫ (БЕЗ PYTZ)
 # ===================================================
-def get_omsk_time():
-    """Возвращает текущее время по Омску (UTC+6)"""
-    return datetime.utcnow() + timedelta(hours=TIMEZONE_OFFSET)
+def get_moscow_time():
+    """Возвращает текущее время по Москве (UTC+3)"""
+    return datetime.utcnow() + timedelta(hours=3)
 
 def get_season_day():
     """Возвращает номер дня в сезоне (1-31)"""
-    now = get_omsk_time()
-    # Сезон начинается 5-го числа в 03:00
-    if now.day >= 5 or (now.day == 5 and now.hour >= 3):
-        season_start = datetime(now.year, now.month, 5, 3, 0)
+    now = get_moscow_time()
+    # Сезон начинается 5-го числа в 00:00
+    if now.day >= 5:
+        season_start = datetime(now.year, now.month, 5, 0, 0)
         day_num = (now - season_start).days + 1
     else:
         # Если 1-4 число, сезон начался в прошлом месяце
         if now.month == 1:
-            season_start = datetime(now.year - 1, 12, 5, 3, 0)
+            season_start = datetime(now.year - 1, 12, 5, 0, 0)
         else:
-            season_start = datetime(now.year, now.month - 1, 5, 3, 0)
+            season_start = datetime(now.year, now.month - 1, 5, 0, 0)
         day_num = (now - season_start).days + 1
     return min(day_num, 31)
 
 def is_deadline_passed():
     """Проверяет, можно ли сдавать отчёт за сегодня"""
-    now = get_omsk_time()
-    # Если сейчас 03:00 или позже — сегодняшний день уже начался
-    if now.hour >= 3:
-        return False  # Можно сдавать за сегодня
-    else:
-        # Если сейчас 00:00 - 02:59 — это ещё вчерашний игровой день
-        return True   # Нельзя сдавать за вчера
+    now = get_moscow_time()
+    # Если сейчас 00:00 или позже — сегодняшний день уже начался
+    # Если сейчас 23:59 — ещё можно сдать
+    return False  # Всегда можно сдавать! (проверка дедлайна — в уведомлениях)
 
 # ===================================================
 # 4. БОТ
@@ -105,10 +102,7 @@ async def report_score(message: types.Message):
     user_id = str(message.from_user.id)
     args = message.text.split()
     
-    # Проверка на дедлайн
-    if is_deadline_passed():
-        await message.reply("❗ Дедлайн уже прошёл! Отчёт за сегодня не принимается.")
-        return
+    
 
     target_username = None
     if len(args) >= 3 and args[1].startswith("@"):
@@ -456,9 +450,13 @@ async def reset_season(message: types.Message):
 
 async def check_and_notify():
     """Проверяет каждую минуту, нужно ли уведомлять"""
-    now = get_omsk_time()
-    deadline = now.replace(hour=2, minute=59, second=0, microsecond=0)
+    now = get_moscow_time()
+    deadline = now.replace(hour=23, minute=59, second=0, microsecond=0)
     time_left = (deadline - now).total_seconds() / 3600  # часов до дедлайна
+
+    # Если дедлайн уже прошёл — не уведомляем
+    if time_left < 0:
+        return
 
     # Определяем, какое уведомление отправлять
     notify_hours = None
@@ -471,7 +469,7 @@ async def check_and_notify():
     elif 0.5 < time_left <= 1.5:
         notify_hours = "1"
     else:
-        return  # не время
+        return
 
     # Находим неотыгравших
     day_num = str(get_season_day())
@@ -481,19 +479,16 @@ async def check_and_notify():
             missing.append(data["username"])
 
     if not missing:
-        return  # все отыграли
+        return
 
     # Формируем сообщение
     if notify_hours in ["6", "3"]:
-        # Общее сообщение в чат
-        msg = f"⏰ Через {notify_hours} часа дедлайн!\nНе отчитались:\n" + "\n".join(missing)
+        msg = f"⏰ Через {notify_hours} часа дедлайн (23:59 МСК)!\nНе отчитались:\n" + "\n".join(missing)
         await bot.send_message(CHAT_ID, msg)
     else:
-        # Персональные теги в чат
         msg = f"⏰ Через {notify_hours} часа! @{' @'.join([m.replace('@', '') for m in missing])} — сдайте отчёт!"
         await bot.send_message(CHAT_ID, msg)
 
-        # Личные сообщения каждому
         for username in missing:
             try:
                 await bot.send_message(
@@ -501,7 +496,7 @@ async def check_and_notify():
                     f"⏰ Дедлайн через {notify_hours} часа! Сдай отчёт: /и 14"
                 )
             except:
-                pass  # если у пользователя закрыт бот
+                pass
 
 # ===================================================
 # 8. ЗАПУСК
