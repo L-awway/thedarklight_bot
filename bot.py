@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 # ===================================================
 BOT_TOKEN = "8983642305:AAHjcQafXP0QPEgl0TQebRXWOud347-HcyI"
 CHAT_ID = -1002734456748
-ADMINS = ["polllllllllllllllivi", "DanielDerecha", "Dasyero"]
+ADMINS = ["polllllllllllllllivi", "DanielDerecha", "Dasyero", "Ahahanta", "Zhongli_3112", "Kyoruk"]
 
 MAX_SCORE = 16
 LOW_SCORE_THRESHOLD = 10
@@ -132,15 +132,9 @@ async def report_score(message: types.Message):
             return
         
         if user_id not in users:
-            username = "@" + message.from_user.username if message.from_user.username else f"User{user_id[:4]}"
-            users[user_id] = {
-                "username": username,
-                "today_score": 0,
-                "warnings": 0,
-                "skips": 0,
-                "history": {str(d): None for d in range(1, 32)}
-            }
-            save_data(db)
+            await message.reply("❌ Вы не зарегистрированы в клане! Обратитесь к администратору для регистрации.")
+            return
+        
         target_username = users[user_id]["username"]
 
     if score < 0 or score > MAX_SCORE:
@@ -270,19 +264,22 @@ async def skip_list(message: types.Message):
 
 @dp.message(Command("предупреждения"))
 async def warning_list(message: types.Message):
-    text = "⚠️ ИГРОКИ С ПРЕДУПРЕЖДЕНИЯМИ (<10 очков):\n\n"
-    found = False
+    text = "📊 ИГРОКИ, КОТОРЫМ НУЖНА ПОМОЩЬ С КОЛОДОЙ:\n\n"
+    text += "Здесь собраны игроки, у которых было 3+ дня с результатом меньше 10 очков.\n"
+    text += "Свяжитесь с ними, чтобы помочь улучшить колоду!\n\n"
+    
+    found = False  # ← ДОБАВИЛИ
     
     for uid, data in users.items():
-        if data["warnings"] > 0:
-            status = "ПОРОГ!" if data["warnings"] >= MAX_WARNINGS else f"{data['warnings']}/{MAX_WARNINGS}"
-            text += f"{data['username']} — {status}\n"
+        if data["warnings"] >= MAX_WARNINGS:
+            clean_username = data['username'].replace('@', '')
+            text += f"• {clean_username} — {data['warnings']} дней с низким результатом\n"
             found = True
     
     if not found:
-        text = "✅ Нет игроков с предупреждениями."
+        text = "✅ Все игроки показывают хорошие результаты! Так держать!"
     
-    await message.reply(text)
+    await message.reply(text)  # ← ПЕРЕНЕСЛИ ВНУТРЬ ФУНКЦИИ
 
 # ===================================================
 # 6. АДМИН-КОМАНДЫ
@@ -426,17 +423,14 @@ async def fix_score(message: types.Message):
 
 @dp.message(Command("состав"))
 async def show_roster(message: types.Message):
-    if not is_admin(message.from_user.username):
-        await message.reply("⛔ Доступно только администраторам.")
-        return
-    
     if not users:
         await message.reply("❌ В клане пока нет игроков.")
         return
     
     text = "👥 СОСТАВ КЛАНА:\n\n"
     for uid, data in users.items():
-        text += f"{data['username']} — сегодня: {data['today_score']}/{MAX_SCORE}\n"
+        clean_username = data['username'].replace('@', '')
+        text += f"{clean_username} — сегодня: {data['today_score']}/{MAX_SCORE}\n"
     
     await message.reply(text)
 
