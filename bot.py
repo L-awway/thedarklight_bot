@@ -38,6 +38,33 @@ db = load_data()
 users = db["users"]
 
 # ===================================================
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ПОИСКА ПО USERNAME
+# ===================================================
+
+def get_user_by_username(username):
+    """Находит пользователя по username (регистронезависимо)"""
+    username_lower = username.lower()
+    for uid, data in users.items():
+        if data["username"].lower() == username_lower:
+            return uid, data
+    return None, None
+
+def ensure_user_exists(username):
+    """Создаёт пользователя, если его нет"""
+    uid, data = get_user_by_username(username)
+    if uid is None:
+        uid = f"user_{len(users) + 1}"
+        users[uid] = {
+            "username": username,
+            "today_score": 0,
+            "warnings": 0,
+            "skips": 0,
+            "history": {str(d): None for d in range(1, 32)}
+        }
+        save_data(db)
+    return uid, users[uid]
+
+# ===================================================
 # 3. ДАТА И СЕЗОНЫ (БЕЗ PYTZ)
 # ===================================================
 def get_moscow_time():
@@ -88,7 +115,7 @@ async def start_cmd(message: types.Message):
         "/топ — топ-5 клана\n"
         "/стата @Nick — статистика игрока\n"
         "/прогулы — список прогульщиков\n"
-        "/предупреждения — кто часто <10 очков\n\n"
+        "/сливы — кто часто <10 очков\n\n"
         "👑 Админы:\n"
         "/добавить @Nick\n"
         "/удалить @Nick\n"
@@ -99,10 +126,7 @@ async def start_cmd(message: types.Message):
 
 @dp.message(Command("и"))
 async def report_score(message: types.Message):
-    user_id = str(message.from_user.id)
     args = message.text.split()
-    
-    
 
     target_username = None
     if len(args) >= 3 and args[1].startswith("@"):
@@ -125,36 +149,27 @@ async def report_score(message: types.Message):
             await message.reply("❗ Используйте: /и 14")
             return
         
-        if user_id not in users:
+        # Определяем username игрока
+        username = "@" + message.from_user.username if message.from_user.username else None
+        
+        if not username:
+            await message.reply("❌ У вас не установлен юзернейм! Установите его в настройках Telegram.")
+            return
+        
+        # Проверяем, есть ли игрок в базе
+        uid, data = get_user_by_username(username)
+        if uid is None:
             await message.reply("❌ Вы не зарегистрированы в клане! Обратитесь к администратору для регистрации.")
             return
         
-        target_username = users[user_id]["username"]
+        target_username = username
 
     if score < 0 or score > MAX_SCORE:
         await message.reply(f"❗ Очки должны быть от 0 до {MAX_SCORE}")
         return
 
-    target_user_id = None
-    if len(args) >= 3 and args[1].startswith("@"):
-        for uid, data in users.items():
-            if data["username"] == target_username:
-                target_user_id = uid
-                break
-        if target_user_id is None:
-            target_user_id = f"user_{len(users) + 1}"
-            users[target_user_id] = {
-                "username": target_username,
-                "today_score": 0,
-                "warnings": 0,
-                "skips": 0,
-                "history": {str(d): None for d in range(1, 32)}
-            }
-            save_data(db)
-    else:
-        target_user_id = user_id
-
-    user_data = users[target_user_id]
+    # Находим или создаём пользователя
+    uid, user_data = ensure_user_exists(target_username)
     day_num = str(get_season_day())
 
     # Проверка: если сегодня уже сдал
@@ -167,12 +182,10 @@ async def report_score(message: types.Message):
     user_data["today_score"] = score
     save_data(db)
 
-    # ===== НОВАЯ ЛОГИКА ПРЕДУПРЕЖДЕНИЙ =====
-    # score == 0 — это НЕ прогул, а просто 0 очков (проиграл все бои)
+    # Логика предупреждений
     if score == 0:
-        # 0 очков — не прогул, но меньше 10, поэтому считаем как предупреждение
         user_data["warnings"] += 1
-        await message.reply(f"😅 {user_data['username']} — 0 очков! Неудачный день. Предупреждение #{user_data['warnings']}")
+        await message.reply(f"😅 {user_data['username']} — 0 очков! Неудачный день. Слив #{user_data['warnings']}")
         if user_data["warnings"] >= MAX_WARNINGS:
             await bot.send_message(
                 CHAT_ID,
@@ -180,7 +193,7 @@ async def report_score(message: types.Message):
             )
     elif score < LOW_SCORE_THRESHOLD:
         user_data["warnings"] += 1
-        await message.reply(f"⚠️ {score}/{MAX_SCORE} — ниже 10! Предупреждение #{user_data['warnings']}")
+        await message.reply(f"⚠️ {score}/{MAX_SCORE} — ниже 10! Слив #{user_data['warnings']}")
         if user_data["warnings"] >= MAX_WARNINGS:
             await bot.send_message(
                 CHAT_ID,
@@ -190,7 +203,33 @@ async def report_score(message: types.Message):
         await message.reply(f"✅ {user_data['username']} — {score}/{MAX_SCORE}!")
 
     save_data(db)
+
+@dp.message(Command("я"))
+async def my_stats(message: types.Message):
+    username = "@" + message.from_user.username if message.from_user.username else None
     
+    if not username:
+        await message.reply("❌ У вас не установлен юзернейм! Установите его в настройках Telegram.")
+        return
+    
+    uid, data = get_user_by_username(username)
+    if uid is None:
+        await message.reply("❌ Нет данных. Сдайте отчёт: /и 14")
+        return
+    
+    scores = [s for s in data["history"].values() if s is not None]
+    total = sum(scores) if scores else 0
+    avg = round(total / len(scores), 1) if scores else 0
+    
+    await message.reply(
+        f"📊 Статистика {data['username']}:\n"
+        f"Сегодня: {data['today_score']}/{MAX_SCORE}\n"
+        f"Прогулов: {data['skips']}/{MAX_SKIPS}\n"
+        f"Предупреждений: {data['warnings']} (из {MAX_WARNINGS})\n"
+        f"Средний балл: {avg}\n"
+        f"Дней в сезоне: {len(scores)}"
+    )
+
 @dp.message(Command("топ"))
 async def top_cmd(message: types.Message):
     if not users:
@@ -256,7 +295,7 @@ async def skip_list(message: types.Message):
     
     await message.reply(text)
 
-@dp.message(Command("предупреждения"))
+@dp.message(Command("сливы"))
 async def warning_list(message: types.Message):
     text = "📊 ИГРОКИ, КОТОРЫМ НУЖНА ПОМОЩЬ С КОЛОДОЙ:\n\n"
     text += "Здесь собраны игроки, у которых было 3+ дня с результатом меньше 10 очков.\n"
@@ -274,6 +313,31 @@ async def warning_list(message: types.Message):
         text = "✅ Все игроки показывают хорошие результаты! Так держать!"
     
     await message.reply(text)  # ← ПЕРЕНЕСЛИ ВНУТРЬ ФУНКЦИИ
+
+@dp.message(Command("время"))
+async def show_time(message: types.Message):
+    now = get_moscow_time()
+    deadline = now.replace(hour=23, minute=59, second=0, microsecond=0)
+    time_left = (deadline - now).total_seconds()
+    
+    # Форматируем оставшееся время
+    if time_left > 0:
+        hours = int(time_left // 3600)
+        minutes = int((time_left % 3600) // 60)
+        seconds = int(time_left % 60)
+        time_str = f"{hours} ч {minutes} мин {seconds} сек"
+    else:
+        time_str = "⏰ Дедлайн уже прошёл! Ожидайте следующий день."
+    
+    day_num = get_season_day()
+    
+    await message.reply(
+        f"🕐 **Текущее время (МСК):** {now.strftime('%H:%M:%S')}\n"
+        f"📅 **Дата:** {now.strftime('%d.%m.%Y')}\n"
+        f"📆 **День сезона:** {day_num}/31\n"
+        f"⏳ **До дедлайна (23:59):** {time_str}\n\n"
+        f"📌 Команда `/и 14` — сдать отчёт"
+    )
 
 # ===================================================
 # 6. АДМИН-КОМАНДЫ
