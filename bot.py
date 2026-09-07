@@ -37,6 +37,8 @@ def save_data(data):
 db = load_data()
 users = db["users"]
 
+# Для отслеживания уведомлений (чтобы не спамить)
+last_notify_hour = None
 # ===================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ПОИСКА ПО USERNAME
 # ===================================================
@@ -513,16 +515,16 @@ async def reset_season(message: types.Message):
 # ===================================================
 
 async def check_and_notify():
-    """Проверяет каждую минуту, нужно ли уведомлять"""
+    """Проверяет, нужно ли уведомлять о дедлайне (не чаще раза в час)"""
+    global last_notify_hour
+    
     now = get_moscow_time()
     deadline = now.replace(hour=23, minute=59, second=0, microsecond=0)
-    time_left = (deadline - now).total_seconds() / 3600  # часов до дедлайна
+    time_left = (deadline - now).total_seconds() / 3600
 
-    # Если дедлайн уже прошёл — не уведомляем
     if time_left < 0:
         return
 
-    # Определяем, какое уведомление отправлять
     notify_hours = None
     if 5.5 < time_left <= 6.5:
         notify_hours = "6"
@@ -535,7 +537,12 @@ async def check_and_notify():
     else:
         return
 
-    # Находим неотыгравших
+    # Проверяем, не отправляли ли уже в этом часу
+    current_hour = now.hour
+    if last_notify_hour == current_hour:
+        return
+    last_notify_hour = current_hour
+
     day_num = str(get_season_day())
     missing = []
     for uid, data in users.items():
@@ -545,7 +552,7 @@ async def check_and_notify():
     if not missing:
         return
 
-    # Формируем сообщение
+    # Отправляем уведомление
     if notify_hours in ["6", "3"]:
         msg = f"⏰ Через {notify_hours} часа дедлайн (23:59 МСК)!\nНе отчитались:\n" + "\n".join(missing)
         await bot.send_message(CHAT_ID, msg)
@@ -561,7 +568,6 @@ async def check_and_notify():
                 )
             except:
                 pass
-
 # ===================================================
 # 7. ФОНОВАЯ ЗАДАЧА (ОБНУЛЕНИЕ В 00:00)
 # ===================================================
@@ -585,6 +591,8 @@ async def background_tasks():
         if now.hour == 0 and now.minute == 0 and last_reset_day != now.day:
             await reset_today_scores()
             last_reset_day = now.day
+
+        await check_and_notify()
         
         await asyncio.sleep(60)  # Проверяем раз в минуту
 
