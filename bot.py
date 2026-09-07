@@ -519,7 +519,7 @@ async def check_and_notify():
     global last_notify_hour
     
     now = get_moscow_time()
-    deadline = now.replace(hour=6, minute=42, second=0, microsecond=0)
+    deadline = now.replace(hour=6, minute=50, second=0, microsecond=0)
     time_left = (deadline - now).total_seconds() / 3600
 
     if time_left < 0:
@@ -588,7 +588,7 @@ async def background_tasks():
         now = get_moscow_time()
         
         # Обнуление в 00:00 (только если ещё не обнуляли сегодня)
-        if now.hour == 0 and now.minute == 0 and last_reset_day != now.day:
+        if now.hour == 6 and now.minute == 50 and last_reset_day != now.day:
             await reset_today_scores()
             last_reset_day = now.day
 
