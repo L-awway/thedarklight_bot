@@ -519,7 +519,7 @@ async def check_and_notify():
     global last_notify_hour
     
     now = get_moscow_time()
-    deadline = now.replace(hour=23, minute=59, second=0, microsecond=0)
+    deadline = now.replace(hour=6, minute=42, second=0, microsecond=0)
     time_left = (deadline - now).total_seconds() / 3600
 
     if time_left < 0:
