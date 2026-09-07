@@ -563,6 +563,32 @@ async def check_and_notify():
                 pass
 
 # ===================================================
+# 7. ФОНОВАЯ ЗАДАЧА (ОБНУЛЕНИЕ В 00:00)
+# ===================================================
+
+async def reset_today_scores():
+    """Обнуляет today_score у всех игроков в 00:00"""
+    for uid, data in users.items():
+        data["today_score"] = 0
+    save_data(db)
+    await bot.send_message(CHAT_ID, "🔄 Новый день! Все результаты обнулены до 0/16. Вносите новые результаты!")
+    print(f"🔄 {get_moscow_time().strftime('%H:%M')} — today_score обнулён")
+
+async def background_tasks():
+    """Фоновая задача: проверяет время и обнуляет очки"""
+    last_reset_day = None  # Чтобы не обнулять несколько раз
+    
+    while True:
+        now = get_moscow_time()
+        
+        # Обнуление в 00:00 (только если ещё не обнуляли сегодня)
+        if now.hour == 0 and now.minute == 0 and last_reset_day != now.day:
+            await reset_today_scores()
+            last_reset_day = now.day
+        
+        await asyncio.sleep(60)  # Проверяем раз в минуту
+
+# ===================================================
 # 8. ЗАПУСК
 # ===================================================
 
@@ -571,15 +597,9 @@ async def main():
     print(f"📅 Текущий день сезона: {get_season_day()}")
     
     # Запускаем фоновую задачу для уведомлений (каждую минуту)
-    asyncio.create_task(notification_loop())
+    asyncio.create_task(background_tasks())
     
     await dp.start_polling(bot)
-
-async def notification_loop():
-    """Проверяет уведомления каждую минуту"""
-    while True:
-        await check_and_notify()
-        await asyncio.sleep(3600)  # 1 минута
 
 if __name__ == "__main__":
     asyncio.run(main())
