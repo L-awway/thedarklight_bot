@@ -594,28 +594,22 @@ async def check_and_notify():
 # ===================================================
 
 async def reset_today_scores():
-    """Обнуляет today_score у всех игроков в 00:00"""
+    """Обнуляет today_score у всех игроков в 00:00 и считает прогулы (с 3-го дня)"""
     for uid, data in users.items():
+        # Проверяем, сдал ли игрок отчёт за вчерашний день
+        day_num = get_season_day() - 1  # Вчерашний день
+        
+        # Прогулы считаем только с 3-го дня
+        if day_num >= 3:
+            if str(day_num) in data["history"] and data["history"][str(day_num)] is None:
+                data["skips"] += 1
+        
+        # Обнуляем today_score для нового дня
         data["today_score"] = 0
+    
     save_data(db)
     await bot.send_message(CHAT_ID, "🔄 Новый день! Все результаты обнулены до 0/16. Вносите новые результаты!")
-    print(f"🔄 {get_moscow_time().strftime('%H:%M')} — today_score обнулён")
-
-async def background_tasks():
-    """Фоновая задача: проверяет время и обнуляет очки"""
-    last_reset_day = None  # Чтобы не обнулять несколько раз
-    
-    while True:
-        now = get_moscow_time()
-        
-        # Обнуление в 00:00 (только если ещё не обнуляли сегодня)
-        if now.hour == 0 and now.minute == 0 and last_reset_day != now.day:
-            await reset_today_scores()
-            last_reset_day = now.day
-
-        await check_and_notify()
-        
-        await asyncio.sleep(60)  # Проверяем раз в минуту
+    print(f"🔄 {get_moscow_time().strftime('%H:%M')} — today_score обнулён, прогулы подсчитаны")
 
 # ===================================================
 # 8. ЗАПУСК
