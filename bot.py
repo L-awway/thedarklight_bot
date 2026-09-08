@@ -117,7 +117,8 @@ async def start_cmd(message: types.Message):
         "/топовость — топ-5 клана\n"
         "/стата @Nick — статистика игрока\n"
         "/прогулы — список прогульщиков\n"
-        "/сливы — кто часто <10 очков\n\n"
+        "/сливы — кто часто <10 очков\n"
+        "/дедлайн — тегает всех неотыгравших\n\n"
         "👑 Админы:\n"
         "/добавить @Nick\n"
         "/удалить @Nick\n"
@@ -253,7 +254,8 @@ async def top_cmd(message: types.Message):
         total = sum(scores) if scores else 0
         avg = round(total / len(scores), 1) if scores else 0
         medal = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"][i-1]
-        text += f"{medal} {data['username']} — {total} очков (ср. {avg})\n"
+        clean_username = data['username'].replace('@', '')
+        text += f"{medal} {clean_username} — {total} очков (ср. {avg})\n"
     await message.reply(text)
 
 @dp.message(Command("стата"))
@@ -299,9 +301,9 @@ async def skip_list(message: types.Message):
     # Сортируем по убыванию (кто больше прогулял — тот выше)
     skip_list.sort(key=lambda x: x[1], reverse=True)
     
-    text = "🚫 **РЕЙТИНГ ПРОГУЛЬЩИКОВ**\n\n"
+    text = "🚫 РЕЙТИНГ ПРОГУЛЬЩИКОВ\n\n"
     text += "Чем выше в списке — тем больше прогулов.\n"
-    text += "3+ прогула — повод для беспокойства!\n\n"
+    text += "3+ прогула — повод задуматься об удалении!\n\n"
     
     for i, (username, count) in enumerate(skip_list, 1):
         medal = ""
@@ -312,7 +314,7 @@ async def skip_list(message: types.Message):
         else:
             medal = "🟢 "  # первый раз
         
-        text += f"{i}. {medal}{username} — {count} прогулов\n"
+        text += f"{i}. {medal}{username} — {count}\n"
     
     await message.reply(text)
 
@@ -332,7 +334,7 @@ async def warning_list(message: types.Message):
     # Сортируем по убыванию (кто больше слил — тот выше)
     warning_list.sort(key=lambda x: x[1], reverse=True)
     
-    text = "📊 **РЕЙТИНГ СЛИВОВ** (дней с результатом <10 очков)\n\n"
+    text = "📊 РЕЙТИНГ СЛИВОВ (дней с результатом <10 очков)\n\n"
     text += "Чем выше в списке — тем больше дней с низким результатом.\n"
     text += "3+ дня — нужна помощь с колодой!\n\n"
     
@@ -367,13 +369,45 @@ async def show_time(message: types.Message):
     day_num = get_season_day()
     
     await message.reply(
-        f"🕐 **Текущее время (МСК):** {now.strftime('%H:%M:%S')}\n"
-        f"📅 **Дата:** {now.strftime('%d.%m.%Y')}\n"
-        f"📆 **День сезона:** {day_num}/31\n"
-        f"⏳ **До дедлайна (23:59):** {time_str}\n\n"
+        f"🕐 Текущее время (МСК): {now.strftime('%H:%M:%S')}\n"
+        f"📅 Дата: {now.strftime('%d.%m.%Y')}\n"
+        f"📆 День сезона: {day_num}/31\n"
+        f"⏳ До дедлайна (23:59): {time_str}\n\n"
         f"📌 Команда `/и 14` — сдать отчёт"
     )
 
+@dp.message(Command("дедлайн"))
+async def show_deadline(message: types.Message):
+    """Показывает, сколько осталось до дедлайна, и список неотыгравших с @"""
+    now = get_moscow_time()
+    deadline = now.replace(hour=23, minute=59, second=0, microsecond=0)
+    time_left = (deadline - now).total_seconds()
+    
+    # Форматируем оставшееся время
+    if time_left > 0:
+        hours = int(time_left // 3600)
+        minutes = int((time_left % 3600) // 60)
+        seconds = int(time_left % 60)
+        time_str = f"{hours} ч {minutes} мин {seconds} сек"
+    else:
+        time_str = "⏰ Дедлайн уже прошёл! Ожидайте следующий день."
+    
+    # Находим неотыгравших (с @)
+    day_num = str(get_season_day())
+    missing = []
+    for uid, data in users.items():
+        if data["history"].get(day_num) is None:
+            missing.append(data["username"])  # ← ОСТАВЛЯЕМ С @
+    
+    # Формируем сообщение
+    msg = f"⏳ **До дедлайна (23:59 МСК):** {time_str}\n\n"
+    
+    if missing:
+        msg += f"🚫 **Не отыграли ({len(missing)} чел.):**\n" + "\n".join(missing)
+    else:
+        msg += "✅ **Все отыграли! Молодцы!**"
+    
+    await message.reply(msg)
 # ===================================================
 # 6. АДМИН-КОМАНДЫ
 # ===================================================
