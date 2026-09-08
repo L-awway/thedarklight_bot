@@ -612,6 +612,36 @@ async def reset_today_scores():
     print(f"🔄 {get_moscow_time().strftime('%H:%M')} — today_score обнулён, прогулы подсчитаны")
 
 # ===================================================
+# 8. ФОНОВАЯ ЗАДАЧА (БЕЗ ЛИШНИХ ПРОВЕРОК)
+# ===================================================
+
+async def background_tasks():
+    """Фоновая задача: запускает задачи в нужное время (БЕЗ ЛИШНИХ ПРОВЕРОК)"""
+    
+    # Список задач: (час, минута, функция)
+    tasks = [
+        (0, 0, reset_today_scores),      # 00:00 — обнуление
+        (18, 0, check_and_notify),       # 18:00 — уведомление за 6 часов
+        (21, 0, check_and_notify),       # 21:00 — уведомление за 3 часа
+        (22, 0, check_and_notify),       # 22:00 — уведомление за 2 часа
+        (23, 0, check_and_notify)        # 23:00 — уведомление за 1 час
+    ]
+    
+    while True:
+        now = get_moscow_time()
+        
+        for hour, minute, func in tasks:
+            task_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            
+            if task_time < now:
+                task_time += timedelta(days=1)
+            
+            wait_seconds = (task_time - now).total_seconds()
+            
+            await asyncio.sleep(wait_seconds)
+            
+            await func()
+# ===================================================
 # 8. ЗАПУСК
 # ===================================================
 
