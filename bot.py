@@ -114,7 +114,7 @@ async def start_cmd(message: types.Message):
         "📌 Команды:\n"
         "/и 14 — сдать отчёт\n"
         "/я — моя статистика\n"
-        "/топ — топ-5 клана\n"
+        "/топовость — топ-5 клана\n"
         "/стата @Nick — статистика игрока\n"
         "/прогулы — список прогульщиков\n"
         "/сливы — кто часто <10 очков\n\n"
@@ -123,6 +123,7 @@ async def start_cmd(message: types.Message):
         "/удалить @Nick\n"
         "/зарегистрировать @Nick1 @Nick2 ...\n"
         "/исправить @Nick 14\n"
+        "/уведомление - пришлёт уведомление о неотыгравших\n"
         "/состав"
     )
 
@@ -232,7 +233,7 @@ async def my_stats(message: types.Message):
         f"Дней в сезоне: {len(scores)}"
     )
 
-@dp.message(Command("топ"))
+@dp.message(Command("топовость"))
 async def top_cmd(message: types.Message):
     if not users:
         await message.reply("❌ Нет данных.")
@@ -541,6 +542,15 @@ async def reset_season(message: types.Message):
     
     save_data(db)
     await message.reply("✅ Сезон сброшен! Все данные обнулены.")
+    
+@dp.message(Command("уведомление"))
+async def test_notify(message: types.Message):
+    if message.from_user.username not in ADMINS:
+        await message.reply("⛔ Только для админов.")
+        return
+    
+    await check_and_notify()
+    await message.reply("✅ Уведомление проверено!")
 
 # ===================================================
 # 7. УВЕДОМЛЕНИЯ (ЗА 6/3/2/1 ЧАС)
