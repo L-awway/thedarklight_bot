@@ -284,37 +284,69 @@ async def player_stats(message: types.Message):
 
 @dp.message(Command("прогулы"))
 async def skip_list(message: types.Message):
-    text = "🚫 ИГРОКИ С ПРОГУЛАМИ (>3):\n\n"
-    found = False
-    
+    # Собираем всех игроков с прогулами
+    skip_list = []
     for uid, data in users.items():
-        if data["skips"] > MAX_SKIPS:
-            text += f"{data['username']} — {data['skips']} прогулов\n"
-            found = True
+        if data["skips"] > 0:
+            clean_username = data['username'].replace('@', '')
+            skip_list.append((clean_username, data["skips"]))
     
-    if not found:
-        text = "✅ Нет игроков с превышением прогулов."
+    if not skip_list:
+        await message.reply("✅ Нет игроков с прогулами! Все молодцы!")
+        return
+    
+    # Сортируем по убыванию (кто больше прогулял — тот выше)
+    skip_list.sort(key=lambda x: x[1], reverse=True)
+    
+    text = "🚫 **РЕЙТИНГ ПРОГУЛЬЩИКОВ**\n\n"
+    text += "Чем выше в списке — тем больше прогулов.\n"
+    text += "3+ прогула — повод для беспокойства!\n\n"
+    
+    for i, (username, count) in enumerate(skip_list, 1):
+        medal = ""
+        if count >= 3:
+            medal = "🔴 "  # критично
+        elif count >= 2:
+            medal = "🟡 "  # предупреждение
+        else:
+            medal = "🟢 "  # первый раз
+        
+        text += f"{i}. {medal}{username} — {count} прогулов\n"
     
     await message.reply(text)
 
 @dp.message(Command("сливы"))
 async def warning_list(message: types.Message):
-    text = "📊 ИГРОКИ, КОТОРЫМ НУЖНА ПОМОЩЬ С КОЛОДОЙ:\n\n"
-    text += "Здесь собраны игроки, у которых было 3+ дня с результатом меньше 10 очков.\n"
-    text += "Свяжитесь с ними, чтобы помочь улучшить колоду!\n\n"
-    
-    found = False  # ← ДОБАВИЛИ
-    
+    # Собираем всех игроков со сливами
+    warning_list = []
     for uid, data in users.items():
-        if data["warnings"] >= MAX_WARNINGS:
+        if data["warnings"] > 0:
             clean_username = data['username'].replace('@', '')
-            text += f"• {clean_username} — {data['warnings']} дней с низким результатом\n"
-            found = True
+            warning_list.append((clean_username, data["warnings"]))
     
-    if not found:
-        text = "✅ Все игроки показывают хорошие результаты! Так держать!"
+    if not warning_list:
+        await message.reply("✅ Все игроки показывают хорошие результаты! Так держать!")
+        return
     
-    await message.reply(text)  # ← ПЕРЕНЕСЛИ ВНУТРЬ ФУНКЦИИ
+    # Сортируем по убыванию (кто больше слил — тот выше)
+    warning_list.sort(key=lambda x: x[1], reverse=True)
+    
+    text = "📊 **РЕЙТИНГ СЛИВОВ** (дней с результатом <10 очков)\n\n"
+    text += "Чем выше в списке — тем больше дней с низким результатом.\n"
+    text += "3+ дня — нужна помощь с колодой!\n\n"
+    
+    for i, (username, count) in enumerate(warning_list, 1):
+        medal = ""
+        if count >= 3:
+            medal = "🔴 "  # критично
+        elif count >= 2:
+            medal = "🟡 "  # предупреждение
+        else:
+            medal = "🟢 "  # первый раз
+        
+        text += f"{i}. {medal}{username} — {count} дней\n"
+    
+    await message.reply(text)
 
 @dp.message(Command("время"))
 async def show_time(message: types.Message):
@@ -515,59 +547,48 @@ async def reset_season(message: types.Message):
 # ===================================================
 
 async def check_and_notify():
-    """Проверяет, нужно ли уведомлять о дедлайне (не чаще раза в час)"""
-    global last_notify_hour
+    """Отправляет уведомления строго в 18:00, 21:00, 22:00, 23:00"""
     
     now = get_moscow_time()
-    deadline = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    time_left = (deadline - now).total_seconds() / 3600
-
-    if time_left < 0:
-        return
-
-    notify_hours = None
-    if 5.5 < time_left <= 6.5:
-        notify_hours = "6"
-    elif 2.5 < time_left <= 3.5:
-        notify_hours = "3"
-    elif 1.5 < time_left <= 2.5:
-        notify_hours = "2"
-    elif 0.5 < time_left <= 1.5:
-        notify_hours = "1"
-    else:
-        return
-
-    # Проверяем, не отправляли ли уже в этом часу
     current_hour = now.hour
-    if last_notify_hour == current_hour:
+    current_minute = now.minute
+    
+    # ===== ТОЛЬКО В 18:00, 21:00, 22:00, 23:00 =====
+    if current_minute != 0:
         return
-    last_notify_hour = current_hour
-
+    
+    if current_hour not in [18, 21, 22, 23]:
+        return
+    
+    # Определяем, сколько осталось до дедлайна (23:59)
+    hours_map = {
+        18: "6",
+        21: "3",
+        22: "2",
+        23: "1"
+    }
+    hours_left = hours_map[current_hour]
+    
+    # Находим неотыгравших
     day_num = str(get_season_day())
     missing = []
     for uid, data in users.items():
         if data["history"].get(day_num) is None:
             missing.append(data["username"])
-
+    
     if not missing:
+        print(f"✅ {now.strftime('%H:%M')} — все отыграли")
         return
-
+    
     # Отправляем уведомление
-    if notify_hours in ["6", "3"]:
-        msg = f"⏰ Через {notify_hours} часа дедлайн (23:59 МСК)!\nНе отчитались:\n" + "\n".join(missing)
+    if hours_left in ["6", "3"]:
+        msg = f"⏰ Через {hours_left} часов дедлайн (23:59 МСК)!\nНе отчитались:\n" + "\n".join(missing)
         await bot.send_message(CHAT_ID, msg)
     else:
-        msg = f"⏰ Через {notify_hours} часа! @{' @'.join([m.replace('@', '') for m in missing])} — сдайте отчёт!"
+        msg = f"⏰ Через {hours_left} часа! @{' @'.join([m.replace('@', '') for m in missing])} — сдайте отчёт!"
         await bot.send_message(CHAT_ID, msg)
-
-        for username in missing:
-            try:
-                await bot.send_message(
-                    username,
-                    f"⏰ Дедлайн через {notify_hours} часа! Сдай отчёт: /и 14"
-                )
-            except:
-                pass
+    
+    print(f"📨 {now.strftime('%H:%M')} — уведомление за {hours_left} часа отправлено")
 # ===================================================
 # 7. ФОНОВАЯ ЗАДАЧА (ОБНУЛЕНИЕ В 00:00)
 # ===================================================
