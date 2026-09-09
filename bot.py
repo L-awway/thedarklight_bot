@@ -140,7 +140,6 @@ async def start_cmd(message: types.Message):
         "/удалить @Nick\n"
         "/зарегистрировать @Nick1 @Nick2 ...\n"
         "/исправить @Nick 14\n"
-        "/уведомление - пришлёт уведомление о неотыгравших\n"
         "/состав"
     )
 
@@ -670,6 +669,7 @@ async def background_tasks():
     tasks = [
         (0, 0, reset_today_scores),      # 00:00 — обнуление
         (18, 0, check_and_notify),       # 18:00 — уведомление за 6 часов
+        (18, 21, check_and_notify),  # ← Тестовое время 18:21
         (21, 0, check_and_notify),       # 21:00 — уведомление за 3 часа
         (23, 0, check_and_notify)        # 23:00 — уведомление за 1 час
     ]
