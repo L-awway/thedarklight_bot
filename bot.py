@@ -608,7 +608,7 @@ async def test_notify(message: types.Message):
 # ===================================================
 
 async def check_and_notify():
-    """Отправляет уведомления строго в 18:00, 21:00, 22:00, 23:00"""
+    """Отправляет уведомления строго в 18:00, 21:00, 23:00"""
     
     now = get_moscow_time()
     current_hour = now.hour
@@ -618,38 +618,25 @@ async def check_and_notify():
     if current_minute != 0:
         return
     
-    if current_hour not in [18, 21, 22, 23]:
+    if current_hour not in [18, 21, 23]:
         return
     
-    # Определяем, сколько осталось до дедлайна (23:59)
-    hours_map = {
-        18: "6",
-        21: "3",
-        22: "2",
-        23: "1"
-    }
-    hours_left = hours_map[current_hour]
-    
-    # Находим неотыгравших
+    # Находим неотыгравших (у кого сегодня 0/16)
     day_num = str(get_season_day())
     missing = []
     for uid, data in users.items():
         if data["history"].get(day_num) is None:
             missing.append(data["username"])
     
-    if not missing:
-        print(f"✅ {now.strftime('%H:%M')} — все отыграли")
-        return
-    
-    # Отправляем уведомление
-    if hours_left in ["6", "3"]:
-        msg = f"⏰ Через {hours_left} часов дедлайн (23:59 МСК)!\nНе отчитались:\n" + "\n".join(missing)
-        await bot.send_message(CHAT_ID, msg)
+    # Формируем сообщение
+    if missing:
+        msg = "🚨 **СПИСОК НЕОТЫГРАВШИХ**\n\n"
+        msg += "Эти игроки ещё не сдали отчёт за сегодня:\n\n"
+        msg += "\n".join(missing)
     else:
-        msg = f"⏰ Через {hours_left} часа! @{' @'.join([m.replace('@', '') for m in missing])} — сдайте отчёт!"
-        await bot.send_message(CHAT_ID, msg)
+        msg = "✅ **Все отыграли! Молодцы!**"
     
-    print(f"📨 {now.strftime('%H:%M')} — уведомление за {hours_left} часа отправлено")
+    await bot.send_message(CHAT_ID, msg)
 # ===================================================
 # 7. ФОНОВАЯ ЗАДАЧА (ОБНУЛЕНИЕ В 00:00)
 # ===================================================
@@ -684,7 +671,6 @@ async def background_tasks():
         (0, 0, reset_today_scores),      # 00:00 — обнуление
         (18, 0, check_and_notify),       # 18:00 — уведомление за 6 часов
         (21, 0, check_and_notify),       # 21:00 — уведомление за 3 часа
-        (22, 0, check_and_notify),       # 22:00 — уведомление за 2 часа
         (23, 0, check_and_notify)        # 23:00 — уведомление за 1 час
     ]
     
