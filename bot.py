@@ -37,6 +37,22 @@ def save_data(data):
 db = load_data()
 users = db["users"]
 
+def get_next_user_id():
+    """Генерирует следующий свободный ID (user_1, user_2, ...)"""
+    used_ids = set()
+    for uid in users.keys():
+        if uid.startswith("user_"):
+            try:
+                num = int(uid.split("_")[1])
+                used_ids.add(num)
+            except:
+                pass
+    
+    next_num = 1
+    while next_num in used_ids:
+        next_num += 1
+    
+    return f"user_{next_num}"
 # Для отслеживания уведомлений (чтобы не спамить)
 last_notify_hour = None
 # ===================================================
@@ -52,10 +68,10 @@ def get_user_by_username(username):
     return None, None
 
 def ensure_user_exists(username):
-    """Создаёт пользователя, если его нет"""
+    """Создаёт пользователя, если его нет (с уникальным ID)"""
     uid, data = get_user_by_username(username)
     if uid is None:
-        uid = f"user_{len(users) + 1}"
+        uid = get_next_user_id()  # ← НОВАЯ ЛОГИКА!
         users[uid] = {
             "username": username,
             "today_score": 0,
@@ -107,7 +123,7 @@ dp = Dispatcher()
 # 5. КОМАНДЫ ДЛЯ ВСЕХ
 # ===================================================
 
-@dp.message(Command("start"))
+@dp.message(Command("старт"))
 async def start_cmd(message: types.Message):
     await message.reply(
         "👋 Бот клана The Dark Wars\n\n"
@@ -400,12 +416,12 @@ async def show_deadline(message: types.Message):
             missing.append(data["username"])  # ← ОСТАВЛЯЕМ С @
     
     # Формируем сообщение
-    msg = f"⏳ **До дедлайна (23:59 МСК):** {time_str}\n\n"
+    msg = f"⏳ До дедлайна (23:59 МСК): {time_str}\n\n"
     
     if missing:
-        msg += f"🚫 **Не отыграли ({len(missing)} чел.):**\n" + "\n".join(missing)
+        msg += f"🚫 Не отыграли ({len(missing)} чел.):\n" + "\n".join(missing)
     else:
-        msg += "✅ **Все отыграли! Молодцы!**"
+        msg += "✅ Все отыграли! Молодцы!"
     
     await message.reply(msg)
 # ===================================================
@@ -436,8 +452,8 @@ async def add_user(message: types.Message):
             await message.reply(f"❌ {username} уже в клане.")
             return
     
-    # Добавляем (создаём пустую запись)
-    new_id = f"user_{len(users) + 1}"
+    # Добавляем с уникальным ID
+    new_id = get_next_user_id()  # ← НОВАЯ ЛОГИКА!
     users[new_id] = {
         "username": username,
         "today_score": 0,
@@ -473,7 +489,8 @@ async def register_many(message: types.Message):
         if exists:
             continue
         
-        new_id = f"user_{len(users) + 1}"
+        # Добавляем с уникальным ID
+        new_id = get_next_user_id()  # ← НОВАЯ ЛОГИКА!
         users[new_id] = {
             "username": username,
             "today_score": 0,
