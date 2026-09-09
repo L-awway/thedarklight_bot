@@ -607,20 +607,17 @@ async def test_notify(message: types.Message):
 # ===================================================
 
 async def check_and_notify():
-    """Отправляет уведомления строго в 18:00, 21:00, 23:00"""
+    """Отправляет уведомления в указанные часы (в любую минуту)"""
     
     now = get_moscow_time()
     current_hour = now.hour
     current_minute = now.minute
     
-    # ===== ТОЛЬКО В 18:00, 21:00, 22:00, 23:00 =====
-    if current_minute != 0:
-        return
-    
+    # ===== УБРАЛ ПРОВЕРКУ НА 00 МИНУТ! =====
     if current_hour not in [18, 21, 23]:
         return
     
-    # Находим неотыгравших (у кого сегодня 0/16)
+    # Находим неотыгравших
     day_num = str(get_season_day())
     missing = []
     for uid, data in users.items():
@@ -669,7 +666,7 @@ async def background_tasks():
     tasks = [
         (0, 0, reset_today_scores),      # 00:00 — обнуление
         (18, 0, check_and_notify),       # 18:00 — уведомление за 6 часов
-        (18, 21, check_and_notify),  # ← Тестовое время 18:21
+        (18, 48, check_and_notify),  # ← Тестовое время 18:21
         (21, 0, check_and_notify),       # 21:00 — уведомление за 3 часа
         (23, 0, check_and_notify)        # 23:00 — уведомление за 1 час
     ]
