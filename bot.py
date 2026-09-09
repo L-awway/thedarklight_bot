@@ -665,34 +665,40 @@ async def reset_today_scores():
 # ===================================================
 
 async def background_tasks():
-    """Фоновая задача: запускает задачи в нужное время"""
-    
-    print("🟢 background_tasks ЗАПУЩЕНА и работает!")  # <- ЛОГ ЗАПУСКА
-    
-    tasks = [
-        (19, 17, check_and_notify),  # <- Тест
-        (0, 0, reset_today_scores),
-        (18, 0, check_and_notify),
-        (21, 0, check_and_notify),
-        (23, 0, check_and_notify)
-    ]
+    """Фоновая задача: вызывает /дедлайн в 18:00, 21:00, 23:00"""
     
     while True:
         now = get_moscow_time()
-        print(f"🔄 background_tasks проверяет время: {now.strftime('%H:%M:%S')}")  # <- ЛОГ КАЖДУЮ МИНУТУ
+        
+        # Список задач: (час, минута, функция)
+        tasks = [
+            (19, 37, show_deadline),   # ← ТЕСТ В 19:20
+            (18, 0, show_deadline),
+            (21, 0, show_deadline),
+            (23, 0, show_deadline),
+            (0, 0, reset_today_scores)
+]
+        
+        # Находим ближайшую задачу
+        next_task_time = None
+        next_task_func = None
         
         for hour, minute, func in tasks:
             task_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            
             if task_time < now:
                 task_time += timedelta(days=1)
             
-            wait_seconds = (task_time - now).total_seconds()
-            print(f"⏳ До задачи ({hour:02d}:{minute:02d}) осталось {wait_seconds:.0f} сек")  # <- ЛОГ
-            
-            await asyncio.sleep(wait_seconds)
-            
-            await func()
+            if next_task_time is None or task_time < next_task_time:
+                next_task_time = task_time
+                next_task_func = func
+        
+        wait_seconds = (next_task_time - now).total_seconds()
+        
+        # Ждём ровно до нужного времени
+        await asyncio.sleep(wait_seconds)
+        
+        # Выполняем задачу (show_deadline или reset_today_scores)
+        await next_task_func()
 # ===================================================
 # 8. ЗАПУСК
 # ===================================================
