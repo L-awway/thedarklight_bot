@@ -613,18 +613,22 @@ async def check_and_notify():
     current_hour = now.hour
     current_minute = now.minute
     
-    # ===== УБРАЛ ПРОВЕРКУ НА 00 МИНУТ! =====
+    print(f"🔍 check_and_notify вызван в {now.strftime('%H:%M')}")  # ← ЛОГ
+    
     if current_hour not in [18, 21, 23]:
+        print(f"⏳ Час {current_hour} не разрешён")  # ← ЛОГ
         return
     
-    # Находим неотыгравших
+    print(f"📨 Час {current_hour} разрешён, ищем неотыгравших")  # ← ЛОГ
+    
     day_num = str(get_season_day())
     missing = []
     for uid, data in users.items():
         if data["history"].get(day_num) is None:
             missing.append(data["username"])
     
-    # Формируем сообщение
+    print(f"📊 Найдено неотыгравших: {len(missing)}")  # ← ЛОГ
+    
     if missing:
         msg = "🚨 **СПИСОК НЕОТЫГРАВШИХ**\n\n"
         msg += "Эти игроки ещё не сдали отчёт за сегодня:\n\n"
@@ -633,6 +637,7 @@ async def check_and_notify():
         msg = "✅ **Все отыграли! Молодцы!**"
     
     await bot.send_message(CHAT_ID, msg)
+    print(f"✅ Уведомление отправлено в {now.strftime('%H:%M')}")  # ← ЛОГ
 # ===================================================
 # 7. ФОНОВАЯ ЗАДАЧА (ОБНУЛЕНИЕ В 00:00)
 # ===================================================
@@ -660,19 +665,21 @@ async def reset_today_scores():
 # ===================================================
 
 async def background_tasks():
-    """Фоновая задача: запускает задачи в нужное время (БЕЗ ЛИШНИХ ПРОВЕРОК)"""
+    """Фоновая задача: запускает задачи в нужное время"""
     
-    # Список задач: (час, минута, функция)
+    print("🟢 background_tasks ЗАПУЩЕНА и работает!")  # <- ЛОГ ЗАПУСКА
+    
     tasks = [
-        (0, 0, reset_today_scores),      # 00:00 — обнуление
-        (18, 0, check_and_notify),       # 18:00 — уведомление за 6 часов
-        (18, 48, check_and_notify),  # ← Тестовое время 18:21
-        (21, 0, check_and_notify),       # 21:00 — уведомление за 3 часа
-        (23, 0, check_and_notify)        # 23:00 — уведомление за 1 час
+        (0, 0, reset_today_scores),
+        (18, 0, check_and_notify),
+        (19, 7, check_and_notify),  # <- Тест
+        (21, 0, check_and_notify),
+        (23, 0, check_and_notify)
     ]
     
     while True:
         now = get_moscow_time()
+        print(f"🔄 background_tasks проверяет время: {now.strftime('%H:%M:%S')}")  # <- ЛОГ КАЖДУЮ МИНУТУ
         
         for hour, minute, func in tasks:
             task_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
@@ -681,6 +688,7 @@ async def background_tasks():
                 task_time += timedelta(days=1)
             
             wait_seconds = (task_time - now).total_seconds()
+            print(f"⏳ До задачи ({hour:02d}:{minute:02d}) осталось {wait_seconds:.0f} сек")  # <- ЛОГ
             
             await asyncio.sleep(wait_seconds)
             
