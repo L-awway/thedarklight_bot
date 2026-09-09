@@ -670,9 +670,9 @@ async def background_tasks():
     print("🟢 background_tasks ЗАПУЩЕНА и работает!")  # <- ЛОГ ЗАПУСКА
     
     tasks = [
+        (19, 17, check_and_notify),  # <- Тест
         (0, 0, reset_today_scores),
         (18, 0, check_and_notify),
-        (19, 7, check_and_notify),  # <- Тест
         (21, 0, check_and_notify),
         (23, 0, check_and_notify)
     ]
