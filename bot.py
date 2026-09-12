@@ -55,6 +55,7 @@ def get_next_user_id():
     return f"user_{next_num}"
 # Для отслеживания уведомлений (чтобы не спамить)
 last_notify_hour = None
+current_raid = None
 # ===================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ПОИСКА ПО USERNAME
 # ===================================================
@@ -77,11 +78,44 @@ def ensure_user_exists(username):
             "today_score": 0,
             "warnings": 0,
             "skips": 0,
-            "history": {str(d): None for d in range(1, 32)}
+            "history": {str(d): None for d in range(1, 32)},
+            "bank": 0,
+            "bank_blocked_until": None,
+            "last_bank_accrual_day": None
         }
         save_data(db)
     return uid, users[uid]
 
+def accrue_bank(user_data, score):
+    """Начисляет банк в зависимости от очков за день"""
+    day_num = str(get_season_day())
+    
+    # Проверяем, не заблокирован ли игрок
+    blocked_until = user_data.get("bank_blocked_until")
+    if blocked_until:
+        today_str = get_moscow_time().strftime("%Y-%m-%d")
+        if today_str <= blocked_until:
+            return 0  # Заблокирован, не начисляем
+    
+    # Проверяем, не начисляли ли уже сегодня
+    if user_data.get("last_bank_accrual_day") == day_num:
+        return 0  # Уже начисляли сегодня
+    
+    # Начисляем в зависимости от очков
+        # Начисляем в зависимости от очков
+    accrued = 0
+    if score == 16:
+        accrued = 1.0
+    elif 13 <= score <= 14:
+        accrued = 0.5
+    elif 11 <= score <= 12:
+        accrued = 0.25
+    
+    if accrued > 0:
+        user_data["bank"] = round(user_data.get("bank", 0) + accrued, 2)
+        user_data["last_bank_accrual_day"] = day_num
+    
+    return accrued
 # ===================================================
 # 3. ДАТА И СЕЗОНЫ (БЕЗ PYTZ)
 # ===================================================
@@ -130,16 +164,21 @@ async def start_cmd(message: types.Message):
         "📌 Команды:\n"
         "/и 14 — сдать отчёт\n"
         "/я — моя статистика\n"
+        "/банк — мой банк\n"
         "/топовость — топ-5 клана\n"
         "/стата @Nick — статистика игрока\n"
         "/прогулы — список прогульщиков\n"
         "/сливы — кто часто <10 очков\n"
-        "/дедлайн — тегает всех неотыгравших\n\n"
+        "/дедлайн — кто не отыграл\n\n"
         "👑 Админы:\n"
         "/добавить @Nick\n"
         "/удалить @Nick\n"
         "/зарегистрировать @Nick1 @Nick2 ...\n"
         "/исправить @Nick 14\n"
+        "/куплено @Nick 5 — списать\n"
+        "/куплено @Nick -5 — начислить\n"
+        "/штраф @Nick 5 — блокировка банка\n"
+        "/отменаштрафа @Nick — снять блокировку\n"
         "/состав"
     )
 
@@ -200,6 +239,11 @@ async def report_score(message: types.Message):
     user_data["history"][day_num] = score
     user_data["today_score"] = score
     save_data(db)
+    
+    # Начисляем банк
+    accrued = accrue_bank(user_data, score)
+    if accrued > 0:
+        await message.reply(f"🏦 В банк начислено: +{accrued} пт. Баланс: {user_data['bank']} пт")
 
     # Логика предупреждений
     if score == 0:
@@ -243,6 +287,7 @@ async def my_stats(message: types.Message):
     await message.reply(
         f"📊 Статистика {data['username']}:\n"
         f"Сегодня: {data['today_score']}/{MAX_SCORE}\n"
+        f"🏦 Банк: {data.get('bank', 0)} пт\n"
         f"Прогулов: {data['skips']}/{MAX_SKIPS}\n"
         f"Предупреждений: {data['warnings']} (из {MAX_WARNINGS})\n"
         f"Средний балл: {avg}\n"
@@ -290,7 +335,9 @@ async def player_stats(message: types.Message):
             total = sum(scores) if scores else 0
             avg = round(total / len(scores), 1) if scores else 0
             await message.reply(
-                f"📊 Статистика {username}:\n"
+                f"📊 Статистика {data['username']}:\n"
+                f"Сегодня: {data['today_score']}/{MAX_SCORE}\n"
+                f"🏦 Банк: {data.get('bank', 0)} пт\n"
                 f"Прогулов: {data['skips']}/{MAX_SKIPS}\n"
                 f"Предупреждений: {data['warnings']} (из {MAX_WARNINGS})\n"
                 f"Средний балл: {avg}\n"
@@ -423,6 +470,61 @@ async def show_deadline(message: types.Message):
         msg += "✅ Все отыграли! Молодцы!"
     
     await message.reply(msg)
+    
+@dp.message(Command("банк"))
+async def my_bank(message: types.Message):
+    """Показывает баланс банка игрока"""
+    username = "@" + message.from_user.username if message.from_user.username else None
+    
+    if not username:
+        await message.reply("❌ У вас не установлен юзернейм! Установите его в настройках Telegram.")
+        return
+    
+    uid, data = get_user_by_username(username)
+    if uid is None:
+        await message.reply("❌ Вы не зарегистрированы в клане!")
+        return
+    
+    bank = data.get("bank", 0)
+    
+    # Проверяем блокировку
+    blocked_until = data.get("bank_blocked_until")
+    blocked_text = ""
+    if blocked_until and get_moscow_time().strftime("%Y-%m-%d") <= blocked_until:
+        blocked_text = f"\n⛔ Начисление в банк заблокировано до {blocked_until}"
+    
+    await message.reply(
+        f"🏦 Банк {data['username']}\n\n"
+        f"Баланс: {bank} пт{blocked_text}"
+    )
+    
+@dp.message(Command("+рейд"))
+async def join_raid(message: types.Message):
+    global current_raid
+    
+    # Проверяем, есть ли активный рейд
+    if current_raid is None:
+        await message.reply("❌ Сейчас нет активного рейда.")
+        return
+    
+    # Определяем username
+    username = "@" + message.from_user.username if message.from_user.username else None
+    if not username:
+        await message.reply("❌ У вас не установлен юзернейм!")
+        return
+    
+    # Проверяем, есть ли уже в списке
+    if username in current_raid["members"]:
+        await message.reply("❌ Ты уже зарегался на рейд!")
+        return
+    
+    # Добавляем в список
+    current_raid["members"].append(username)
+    
+    await message.reply(
+        f"✅ {username} записан на рейд в **{current_raid['time']} МСК**!\n"
+        f"👥 Всего записано: {len(current_raid['members'])}"
+    )
 # ===================================================
 # 6. АДМИН-КОМАНДЫ
 # ===================================================
@@ -458,7 +560,10 @@ async def add_user(message: types.Message):
         "today_score": 0,
         "warnings": 0,
         "skips": 0,
-        "history": {str(d): None for d in range(1, 32)}
+        "history": {str(d): None for d in range(1, 32)},
+        "bank": 0,
+        "bank_blocked_until": None,
+        "last_bank_accrual_day": None
     }
     save_data(db)
     await message.reply(f"✅ {username} добавлен в клан!")
@@ -495,7 +600,10 @@ async def register_many(message: types.Message):
             "today_score": 0,
             "warnings": 0,
             "skips": 0,
-            "history": {str(d): None for d in range(1, 32)}
+            "history": {str(d): None for d in range(1, 32)},
+            "bank": 0,
+            "bank_blocked_until": None,
+            "last_bank_accrual_day": None
         }
         count += 1
     
@@ -564,6 +672,194 @@ async def fix_score(message: types.Message):
     
     await message.reply(f"❌ {username} не найден.")
 
+@dp.message(Command("куплено"))
+async def bank_purchase(message: types.Message):
+    """Админ: списать/начислить банк игроку"""
+    if not is_admin(message.from_user.username):
+        await message.reply("⛔ Доступно только администраторам.")
+        return
+    
+    args = message.text.split()
+    if len(args) < 3:
+        await message.reply("❗ Используйте: /куплено @Nickname 5 или /куплено @Nickname -5")
+        return
+    
+    # Определяем пользователя
+    target_username = args[1]
+    if not target_username.startswith("@"):
+        target_username = "@" + target_username
+    
+    # Определяем сумму
+    try:
+        amount = float(args[2].replace(",", "."))
+    except:
+        await message.reply("❗ Введите число, например: /куплено @Nick 5")
+        return
+    
+    # Ищем игрока
+    uid, data = get_user_by_username(target_username)
+    if uid is None:
+        await message.reply(f"❌ {target_username} не найден.")
+        return
+    
+    current_bank = data.get("bank", 0)
+    
+    # Если списание (положительное число) — проверяем, хватает ли
+    if amount > 0:
+        if current_bank < amount:
+            await message.reply(
+                f"❌ У {target_username} недостаточно средств.\n"
+                f"Баланс: {current_bank} пт, нужно: {amount} пт"
+            )
+            return
+        new_bank = round(current_bank - amount, 2)
+        data["bank"] = new_bank
+        save_data(db)
+        await message.reply(
+            f"✅ Списано {amount} пт у {target_username}.\n"
+            f"Новый баланс: {new_bank} пт"
+        )
+    else:
+        # Начисление (отрицательное число)
+        add_amount = abs(amount)
+        new_bank = round(current_bank + add_amount, 2)
+        data["bank"] = new_bank
+        save_data(db)
+        await message.reply(
+            f"✅ Начислено {add_amount} пт игроку {target_username}.\n"
+            f"Новый баланс: {new_bank} пт"
+        )
+    
+@dp.message(Command("штраф"))
+async def bank_penalty(message: types.Message):
+    """Админ: блокирует начисление банка на N дней"""
+    if not is_admin(message.from_user.username):
+        await message.reply("⛔ Доступно только администраторам.")
+        return
+    
+    args = message.text.split()
+    if len(args) < 3:
+        await message.reply("❗ Используйте: /штраф @Nickname 5")
+        return
+    
+    # Определяем пользователя
+    target_username = args[1]
+    if not target_username.startswith("@"):
+        target_username = "@" + target_username
+    
+    # Определяем количество дней
+    try:
+        days = int(args[2])
+        if days <= 0:
+            await message.reply("❗ Количество дней должно быть больше 0.")
+            return
+    except:
+        await message.reply("❗ Введите число, например: /штраф @Nick 5")
+        return
+    
+    # Ищем игрока
+    uid, data = get_user_by_username(target_username)
+    if uid is None:
+        await message.reply(f"❌ {target_username} не найден.")
+        return
+    
+    # Считаем дату окончания блокировки
+    blocked_until = (get_moscow_time() + timedelta(days=days)).strftime("%Y-%m-%d")
+    data["bank_blocked_until"] = blocked_until
+    save_data(db)
+    
+    await message.reply(
+        f"🚫 {target_username} — начисление в банк заблокировано на {days} дней.\n"
+        f"⛔ Разблокировка: {blocked_until}"
+    )
+    
+@dp.message(Command("отменаштрафа"))
+async def bank_unblock(message: types.Message):
+    """Админ: снимает блокировку начисления банка"""
+    if not is_admin(message.from_user.username):
+        await message.reply("⛔ Доступно только администраторам.")
+        return
+    
+    args = message.text.split()
+    if len(args) < 2:
+        await message.reply("❗ Используйте: /отменаштрафа @Nickname")
+        return
+    
+    # Определяем пользователя
+    target_username = args[1]
+    if not target_username.startswith("@"):
+        target_username = "@" + target_username
+    
+    # Ищем игрока
+    uid, data = get_user_by_username(target_username)
+    if uid is None:
+        await message.reply(f"❌ {target_username} не найден.")
+        return
+    
+    # Проверяем, есть ли вообще блокировка
+    blocked_until = data.get("bank_blocked_until")
+    if not blocked_until:
+        await message.reply(f"ℹ️ У {target_username} нет активной блокировки.")
+        return
+    
+    # Снимаем блокировку
+    data["bank_blocked_until"] = None
+    save_data(db)
+    
+    await message.reply(
+        f"✅ {target_username} — блокировка начисления банка снята.\n"
+        f"🏦 Начисления снова активны."
+    )
+    
+@dp.message(Command("рейд"))
+async def create_raid(message: types.Message):
+    global current_raid  # ← ВАЖНО! Чтобы менять глобальную переменную
+    
+    if not is_admin(message.from_user.username):
+        await message.reply("⛔ Доступно только администраторам.")
+        return
+    
+    # Проверяем, нет ли уже активного рейда
+    if current_raid is not None:
+        await message.reply("❌ Уже есть активный рейд! Сначала отмените его: /отменарейда")
+        return
+    
+    args = message.text.split()
+    if len(args) < 2:
+        await message.reply("❗ Используйте: /рейд 21:00")
+        return
+    
+    # Парсим время
+    try:
+        raid_time = args[1]  # "21:00"
+        hour, minute = map(int, raid_time.split(":"))
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            raise ValueError
+    except:
+        await message.reply("❗ Неверный формат времени. Используйте: /рейд 21:00")
+        return
+    
+    # Проверяем, не прошло ли время
+    now = get_moscow_time()
+    raid_datetime = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    
+    if raid_datetime <= now:
+        # Время прошло — переносим на завтра
+        raid_datetime += timedelta(days=1)
+    
+    # Создаём рейд
+    current_raid = {
+        "time": f"{hour:02d}:{minute:02d}",
+        "raid_datetime": raid_datetime,
+        "members": [],
+        "notified_today": None
+    }
+    
+    await message.reply(
+        f"🚀 Рейд создан на **{hour:02d}:{minute:02d} МСК**!\n"
+        f"📝 Записывайтесь командой: `/+рейд`"
+    )
+    
 @dp.message(Command("состав"))
 async def show_roster(message: types.Message):
     if not users:
@@ -576,72 +872,10 @@ async def show_roster(message: types.Message):
         text += f"{clean_username} — сегодня: {data['today_score']}/{MAX_SCORE}\n"
     
     await message.reply(text)
-
-@dp.message(Command("сброс"))
-async def reset_season(message: types.Message):
-    if message.from_user.username != "polllllllllllllllivi":
-        await message.reply("⛔ Только владелец может сбросить сезон.")
-        return
     
-    # Сброс всех данных
-    for uid in users:
-        users[uid]["today_score"] = 0
-        users[uid]["warnings"] = 0
-        users[uid]["skips"] = 0
-        users[uid]["history"] = {str(d): None for d in range(1, 32)}
-    
-    save_data(db)
-    await message.reply("✅ Сезон сброшен! Все данные обнулены.")
-    
-@dp.message(Command("уведомление"))
-async def test_notify(message: types.Message):
-    if message.from_user.username not in ADMINS:
-        await message.reply("⛔ Только для админов.")
-        return
-    
-    await check_and_notify()
-    await message.reply("✅ Уведомление проверено!")
-
-# ===================================================
-# 7. УВЕДОМЛЕНИЯ (ЗА 6/3/2/1 ЧАС)
-# ===================================================
-
-async def check_and_notify():
-    """Отправляет уведомления в указанные часы (в любую минуту)"""
-    
-    now = get_moscow_time()
-    current_hour = now.hour
-    current_minute = now.minute
-    
-    print(f"🔍 check_and_notify вызван в {now.strftime('%H:%M')}")  # ← ЛОГ
-    
-    if current_hour not in [18, 21, 23]:
-        print(f"⏳ Час {current_hour} не разрешён")  # ← ЛОГ
-        return
-    
-    print(f"📨 Час {current_hour} разрешён, ищем неотыгравших")  # ← ЛОГ
-    
-    day_num = str(get_season_day())
-    missing = []
-    for uid, data in users.items():
-        if data["history"].get(day_num) is None:
-            missing.append(data["username"])
-    
-    print(f"📊 Найдено неотыгравших: {len(missing)}")  # ← ЛОГ
-    
-    if missing:
-        msg = "🚨 **СПИСОК НЕОТЫГРАВШИХ**\n\n"
-        msg += "Эти игроки ещё не сдали отчёт за сегодня:\n\n"
-        msg += "\n".join(missing)
-    else:
-        msg = "✅ **Все отыграли! Молодцы!**"
-    
-    await bot.send_message(CHAT_ID, msg)
-    print(f"✅ Уведомление отправлено в {now.strftime('%H:%M')}")  # ← ЛОГ
 # ===================================================
 # 7. ФОНОВАЯ ЗАДАЧА (ОБНУЛЕНИЕ В 00:00)
 # ===================================================
-
 async def reset_today_scores():
     """Обнуляет today_score у всех игроков в 00:00 и считает прогулы (с 3-го дня)"""
     for uid, data in users.items():
@@ -660,45 +894,75 @@ async def reset_today_scores():
     await bot.send_message(CHAT_ID, "🔄 Новый день! Все результаты обнулены до 0/16. Вносите новые результаты!")
     print(f"🔄 {get_moscow_time().strftime('%H:%M')} — today_score обнулён, прогулы подсчитаны")
 
+    
+    
+async def send_deadline_notification():
+    """Отправляет уведомление о дедлайне (для автоматического вызова)"""
+    now = get_moscow_time()
+    
+    day_num = str(get_season_day())
+    missing = []
+    for uid, data in users.items():
+        if data["history"].get(day_num) is None:
+            missing.append(data["username"])
+    
+    deadline = now.replace(hour=23, minute=59, second=0, microsecond=0)
+    time_left = (deadline - now).total_seconds()
+    
+    if time_left > 0:
+        hours = int(time_left // 3600)
+        minutes = int((time_left % 3600) // 60)
+        time_str = f"{hours} ч {minutes} мин"
+    else:
+        time_str = "⏰ Дедлайн прошёл!"
+    
+    msg = f"⏳ До дедлайна (23:59 МСК): {time_str}\n\n"
+    
+    if missing:
+        msg += f"🚫 Не отыграли ({len(missing)} чел.):\n" + "\n".join(missing)
+    else:
+        msg += "✅ Все отыграли! Молодцы!"
+    
+    await bot.send_message(CHAT_ID, msg)
+    print(f"📨 Уведомление отправлено в {now.strftime('%H:%M')}")
 # ===================================================
 # 8. ФОНОВАЯ ЗАДАЧА (БЕЗ ЛИШНИХ ПРОВЕРОК)
 # ===================================================
 
 async def background_tasks():
-    """Фоновая задача: вызывает /дедлайн в 18:00, 21:00, 23:00"""
+    """Фоновая задача: уведомления в 18, 21, 23 и сброс в 00:00"""
+    
+    print("🔄 Фоновая задача запущена")
     
     while True:
         now = get_moscow_time()
         
-        # Список задач: (час, минута, функция)
-        tasks = [
-            (19, 37, show_deadline),   # ← ТЕСТ В 19:20
-            (18, 0, show_deadline),
-            (21, 0, show_deadline),
-            (23, 0, show_deadline),
-            (0, 0, reset_today_scores)
-]
+        events = [
+            (18, 0, False),
+            (21, 0, False),
+            (23, 0, False),
+            (0, 0, True)
+        ]
         
-        # Находим ближайшую задачу
-        next_task_time = None
-        next_task_func = None
+        next_time = None
+        is_reset = False
         
-        for hour, minute, func in tasks:
-            task_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-            if task_time < now:
-                task_time += timedelta(days=1)
-            
-            if next_task_time is None or task_time < next_task_time:
-                next_task_time = task_time
-                next_task_func = func
+        for hour, minute, reset in events:
+            event_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if event_time <= now:
+                event_time += timedelta(days=1)
+            if next_time is None or event_time < next_time:
+                next_time = event_time
+                is_reset = reset
         
-        wait_seconds = (next_task_time - now).total_seconds()
-        
-        # Ждём ровно до нужного времени
+        wait_seconds = (next_time - now).total_seconds()
+        print(f"⏳ Следующее событие через {int(wait_seconds // 60)} минут")
         await asyncio.sleep(wait_seconds)
         
-        # Выполняем задачу (show_deadline или reset_today_scores)
-        await next_task_func()
+        if is_reset:
+            await reset_today_scores()
+        else:
+            await send_deadline_notification()  # ← ВЫЗЫВАЕМ НОВУЮ ФУНКЦИЮ
 # ===================================================
 # 8. ЗАПУСК
 # ===================================================
