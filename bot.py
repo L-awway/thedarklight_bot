@@ -169,7 +169,9 @@ async def start_cmd(message: types.Message):
         "/стата @Nick — статистика игрока\n"
         "/прогулы — список прогульщиков\n"
         "/сливы — кто часто <10 очков\n"
-        "/дедлайн — кто не отыграл\n\n"
+        "/дедлайн — кто не отыграл\n"
+        "/+рейд — записаться на рейд\n"
+        "/-рейд — отписаться от рейда\n\n"
         "👑 Админы:\n"
         "/добавить @Nick\n"
         "/удалить @Nick\n"
@@ -179,6 +181,8 @@ async def start_cmd(message: types.Message):
         "/куплено @Nick -5 — начислить\n"
         "/штраф @Nick 5 — блокировка банка\n"
         "/отменаштрафа @Nick — снять блокировку\n"
+        "/рейд 21:00 — создать рейд\n"
+        "/отменарейда — отменить рейд\n"
         "/состав"
     )
 
@@ -522,9 +526,70 @@ async def join_raid(message: types.Message):
     current_raid["members"].append(username)
     
     await message.reply(
-        f"✅ {username} записан на рейд в **{current_raid['time']} МСК**!\n"
+        f"✅ {username} записан на рейд в {current_raid['time']} МСК!\n"
         f"👥 Всего записано: {len(current_raid['members'])}"
     )
+    
+@dp.message(Command("-рейд"))
+async def leave_raid(message: types.Message):
+    global current_raid
+    
+    # Проверяем, есть ли активный рейд
+    if current_raid is None:
+        await message.reply("❌ Сейчас нет активного рейда.")
+        return
+    
+    # Определяем username
+    username = "@" + message.from_user.username if message.from_user.username else None
+    if not username:
+        await message.reply("❌ У вас не установлен юзернейм!")
+        return
+    
+    # Проверяем, записан ли игрок
+    if username not in current_raid["members"]:
+        await message.reply("❌ Ты не записан на рейд.")
+        return
+    
+    # Удаляем из списка
+    current_raid["members"].remove(username)
+    
+    await message.reply(
+        f"✅ {username} отписан от рейда на {current_raid['time']} МСК.\n"
+        f"👥 Осталось участников: {len(current_raid['members'])}"
+    )
+    
+@dp.message(Command("рейдинфо"))
+async def raid_info(message: types.Message):
+    """Показывает информацию о текущем рейде"""
+    if current_raid is None:
+        await message.reply("ℹ️ Сейчас нет активного рейда.")
+        return
+    
+    now = get_moscow_time()
+    raid_dt = current_raid["raid_datetime"]
+    time_to_raid = (raid_dt - now).total_seconds() / 60  # в минутах
+    
+    # Форматируем время
+    if time_to_raid < 0:
+        time_str = "⏰ Рейд уже начался!"
+    elif time_to_raid < 60:
+        time_str = f"⏳ До рейда: {int(time_to_raid)} мин"
+    else:
+        hours = int(time_to_raid // 60)
+        minutes = int(time_to_raid % 60)
+        time_str = f"⏳ До рейда: {hours} ч {minutes} мин"
+    
+    members = current_raid["members"]
+    members_str = "\n".join(members) if members else "❌ Никто не записался"
+    
+    msg = (
+        f"📋 **ИНФОРМАЦИЯ О РЕЙДЕ**\n\n"
+        f"🕐 Время: {current_raid['time']} МСК\n"
+        f"{time_str}\n"
+        f"👥 Участники ({len(members)} чел.):\n{members_str}"
+    )
+    
+    await message.reply(msg)
 # ===================================================
 # 6. АДМИН-КОМАНДЫ
 # ===================================================
@@ -860,6 +925,24 @@ async def create_raid(message: types.Message):
         f"📝 Записывайтесь командой: `/+рейд`"
     )
     
+@dp.message(Command("отменарейда"))
+async def cancel_raid(message: types.Message):
+    global current_raid
+    
+    if not is_admin(message.from_user.username):
+        await message.reply("⛔ Доступно только администраторам.")
+        return
+    
+    if current_raid is None:
+        await message.reply("ℹ️ Нет активного рейда.")
+        return
+    
+    # Сбрасываем рейд
+    time_was = current_raid["time"]
+    current_raid = None
+    
+    await message.reply(f"🗑️ Рейд на {time_was} МСК отменён.")
+    
 @dp.message(Command("состав"))
 async def show_roster(message: types.Message):
     if not users:
@@ -930,39 +1013,100 @@ async def send_deadline_notification():
 # ===================================================
 
 async def background_tasks():
-    """Фоновая задача: уведомления в 18, 21, 23 и сброс в 00:00"""
+    """Фоновая задача: события по расписанию + проверка рейда"""
     
     print("🔄 Фоновая задача запущена")
     
     while True:
         now = get_moscow_time()
         
+        # ===== ЕСЛИ ЕСТЬ РЕЙД — СПИМ 60 СЕК И ПРОВЕРЯЕМ =====
+        if current_raid is not None:
+            raid_dt = current_raid["raid_datetime"]
+            time_to_raid = (raid_dt - now).total_seconds() / 60  # в минутах
+            
+            # Уведомление за 5 минут
+            if 0 < time_to_raid <= 5 and current_raid.get("notified_today") is None:
+                await send_raid_notification()
+                current_raid["notified_today"] = get_moscow_time().strftime("%Y-%m-%d")
+            
+            # Рейд прошёл — удаляем
+            if time_to_raid <= 0:
+                await finish_raid()
+            
+            # Спим 60 секунд и проверяем снова
+            await asyncio.sleep(60)
+            continue
+        
+        # ===== РЕЙДА НЕТ — ОБЫЧНЫЕ СОБЫТИЯ =====
         events = [
-            (18, 0, False),
-            (21, 0, False),
-            (23, 0, False),
-            (0, 0, True)
+            (18, 0, send_deadline_notification),
+            (21, 0, send_deadline_notification),
+            (23, 0, send_deadline_notification),
+            (0, 0, reset_today_scores)
         ]
         
-        next_time = None
-        is_reset = False
+        # Находим ближайшее событие
+        next_event_time = None
+        next_event_func = None
         
-        for hour, minute, reset in events:
+        for hour, minute, func in events:
             event_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
             if event_time <= now:
                 event_time += timedelta(days=1)
-            if next_time is None or event_time < next_time:
-                next_time = event_time
-                is_reset = reset
+            if next_event_time is None or event_time < next_event_time:
+                next_event_time = event_time
+                next_event_func = func
         
-        wait_seconds = (next_time - now).total_seconds()
-        print(f"⏳ Следующее событие через {int(wait_seconds // 60)} минут")
-        await asyncio.sleep(wait_seconds)
+        # Спим до события, НО максимум 60 секунд (чтобы узнать про новый рейд)
+        wait_seconds = (next_event_time - now).total_seconds()
+        sleep_time = min(60, wait_seconds)
         
-        if is_reset:
-            await reset_today_scores()
-        else:
-            await send_deadline_notification()  # ← ВЫЗЫВАЕМ НОВУЮ ФУНКЦИЮ
+        print(f"⏳ Ближайшее событие в {next_event_time.strftime('%H:%M')}, спим {int(sleep_time)} сек")
+        await asyncio.sleep(sleep_time)
+        
+        # Проверяем, не настало ли время события
+        now = get_moscow_time()
+        for hour, minute, func in events:
+            if now.hour == hour and now.minute == minute:
+                await func()
+                break
+        
+async def send_raid_notification():
+    """Отправляет уведомление о рейде (за 5 минут)"""
+    global current_raid
+    
+    if current_raid is None:
+        return
+    
+    members = current_raid["members"]
+    
+    if members:
+        msg = (
+            f"🚀 **РЕЙД ЧЕРЕЗ 5 МИНУТ!** (в {current_raid['time']} МСК)\n\n"
+            f"👥 **Участники ({len(members)} чел.):**\n"
+            + "\n".join(members)
+        )
+    else:
+        msg = (
+            f"⚠️ **РЕЙД ЧЕРЕЗ 5 МИНУТ!** (в {current_raid['time']} МСК)\n\n"
+            f"❌ **Никто не записался!** Записывайтесь: `/+рейд`"
+        )
+    
+    await bot.send_message(CHAT_ID, msg)
+    print(f"📨 Уведомление о рейде отправлено в {get_moscow_time().strftime('%H:%M')}")
+
+
+async def finish_raid():
+    """Завершает рейд (удаляет после старта)"""
+    global current_raid
+    
+    if current_raid is None:
+        return
+    
+    time_was = current_raid["time"]
+    current_raid = None
+    print(f"🗑️ Рейд на {time_was} завершён")
 # ===================================================
 # 8. ЗАПУСК
 # ===================================================
