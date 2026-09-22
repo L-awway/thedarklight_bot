@@ -1218,30 +1218,7 @@ async def main():
     print("🚀 Бот запущен!")
     print(f"📅 Текущий день сезона: {get_season_day()}")
     
-    # ===== ЖЁСТКАЯ ЗАЩИТА ОТ WEBHOOK =====
-    try:
-        # 1. Удаляем webhook
-        await bot.delete_webhook(drop_pending_updates=True)
-        print("✅ Webhook удалён")
-        
-        # 2. Ждём 3 секунды, чтобы Telegram успел обработать
-        await asyncio.sleep(3)
-        
-        # 3. Проверяем, что webhook точно удалён
-        info = await bot.get_webhook_info()
-        if info.url:
-            print(f"⚠️ Webhook всё ещё активен: {info.url}")
-            # Пробуем ещё раз
-            await bot.delete_webhook(drop_pending_updates=True)
-            await asyncio.sleep(3)
-        else:
-            print("✅ Webhook подтверждён как удалённый")
-    except Exception as e:
-        print(f"⚠️ Ошибка при удалении webhook: {e}")
-    # ===== КОНЕЦ ЗАЩИТЫ =====
-    
-    # Запускаем фоновую задачу
+    # Запускаем фоновую задачу для уведомлений (каждую минуту)
     asyncio.create_task(background_tasks())
     
-    # Запускаем polling
     await dp.start_polling(bot)
