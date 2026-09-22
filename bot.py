@@ -2,9 +2,11 @@ import asyncio
 import logging
 import json
 import os
+import random
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from datetime import datetime, timedelta
+from aiogram.types import FSInputFile
 
 # ===================================================
 # 1. НАСТРОЙКИ (ПОМЕНЯЙ ТОКЕН)
@@ -87,35 +89,47 @@ def ensure_user_exists(username):
     return uid, users[uid]
 
 def accrue_bank(user_data, score):
-    """Начисляет банк в зависимости от очков за день"""
+    """Начисляет/списывает банк в зависимости от очков за день"""
     day_num = str(get_season_day())
     
-    # Проверяем, не заблокирован ли игрок
+    # Проверяем блокировку
     blocked_until = user_data.get("bank_blocked_until")
     if blocked_until:
         today_str = get_moscow_time().strftime("%Y-%m-%d")
         if today_str <= blocked_until:
-            return 0  # Заблокирован, не начисляем
+            return 0  # Заблокирован
     
     # Проверяем, не начисляли ли уже сегодня
     if user_data.get("last_bank_accrual_day") == day_num:
-        return 0  # Уже начисляли сегодня
+        return 0
     
-    # Начисляем в зависимости от очков
-        # Начисляем в зависимости от очков
-    accrued = 0
+    # Определяем изменение банка
+    delta = 0
     if score == 16:
-        accrued = 1.0
+        delta = 1.0
     elif 13 <= score <= 14:
-        accrued = 0.5
+        delta = 0.5
     elif 11 <= score <= 12:
-        accrued = 0.25
+        delta = 0.25
+    elif 8 <= score <= 9:
+        delta = -0.25
+    elif 6 <= score <= 7:
+        delta = -0.5
+    elif score <= 5:
+        delta = -1.0
     
-    if accrued > 0:
-        user_data["bank"] = round(user_data.get("bank", 0) + accrued, 2)
+    if delta != 0:
+        current_bank = user_data.get("bank", 0)
+        new_bank = round(current_bank + delta, 2)
+        
+        # Минимальный баланс = 0
+        if new_bank < 0:
+            new_bank = 0
+        
+        user_data["bank"] = new_bank
         user_data["last_bank_accrual_day"] = day_num
     
-    return accrued
+    return delta
 # ===================================================
 # 3. ДАТА И СЕЗОНЫ (БЕЗ PYTZ)
 # ===================================================
@@ -159,9 +173,18 @@ dp = Dispatcher()
 
 @dp.message(Command("старт"))
 async def start_cmd(message: types.Message):
+    # ===== 1. ОТПРАВЛЯЕМ ВИДЕО =====
+    try:
+        video = FSInputFile("video.mp4")
+        await message.reply_video(
+            video=video,
+            caption="👋 Добро пожаловать в бота клана The Dark Wars of Light!"
+        )
+    except Exception as e:
+        print(f"⚠️ Видео не загрузилось: {e}")
+    
     await message.reply(
-        "👋 Бот клана The Dark Wars\n\n"
-        "📌 Команды:\n"
+        "📌 КОМАНДЫ ДЛЯ ВСЕХ:\n"
         "/и 14 — сдать отчёт\n"
         "/я — моя статистика\n"
         "/банк — мой банк\n"
@@ -171,20 +194,22 @@ async def start_cmd(message: types.Message):
         "/сливы — кто часто <10 очков\n"
         "/дедлайн — кто не отыграл\n"
         "/+рейд — записаться на рейд\n"
-        "/-рейд — отписаться от рейда\n\n"
-        "👑 Админы:\n"
+        "/-рейд — отписаться от рейда\n"
+        "/рейдинфо — информация о рейде\n\n"
+        
+        "👑 КОМАНДЫ ДЛЯ АДМИНОВ:\n"
         "/добавить @Nick\n"
         "/удалить @Nick\n"
         "/зарегистрировать @Nick1 @Nick2 ...\n"
         "/исправить @Nick 14\n"
         "/куплено @Nick 5 — списать\n"
-        "/куплено @Nick -5 — начислить\n"
         "/штраф @Nick 5 — блокировка банка\n"
         "/отменаштрафа @Nick — снять блокировку\n"
         "/рейд 21:00 — создать рейд\n"
         "/отменарейда — отменить рейд\n"
         "/состав"
     )
+    
 
 @dp.message(Command("и"))
 async def report_score(message: types.Message):
@@ -248,6 +273,8 @@ async def report_score(message: types.Message):
     accrued = accrue_bank(user_data, score)
     if accrued > 0:
         await message.reply(f"🏦 В банк начислено: +{accrued} пт. Баланс: {user_data['bank']} пт")
+    elif accrued < 0:
+        await message.reply(f"🏦 Из банка списано: {accrued} пт. Баланс: {user_data['bank']} пт")
 
     # Логика предупреждений
     if score == 0:
@@ -268,6 +295,34 @@ async def report_score(message: types.Message):
             )
     else:
         await message.reply(f"✅ {user_data['username']} — {score}/{MAX_SCORE}!")
+
+    # ===== МОТИВАЦИОННОЕ СООБЩЕНИЕ =====
+    if score == 16:
+        msg = random.choice([
+            "🔥 Только победы достойны твоего имени!",
+            "🔥 Ты оформил серию из одних побед!"
+        ])
+    elif score == 14:
+        msg = "✊ Сегодня ты непобедим, присылай свой бой с ничьей!"
+    elif score == 13:
+        msg = "😔 Враг повергнул тебя единожды(, присылай ход этого поражения!"
+    elif score == 12:
+        msg = "🤝 У тебя ничьи в клановых сражениях, хорошо не поражения, но прислать ход боя, где ты не одержал победу стоит"
+    elif score == 11:
+        msg = "⚔️ Где-то ты не одержал победы, присылай этот бой"
+    elif 7 <= score <= 10:
+        msg = "📉 Где-то ты проиграл. И, наверное, сыграл вничью? - присылай бои!"
+    elif score == 6:
+        msg = "🚨 Ты проиграл два сражения - срочно пришли их!"
+    elif score == 5:
+        msg = "🆘 Либо у тебя победа и ничья с поражениями, либо вообще их три 0-0! - анализ этих боёв необходим!"
+    elif 1 <= score <= 4:
+        msg = "💀 Мало хороших боёв/// - ты знаешь что делать"
+    else:  # score == 0
+        msg = "☠️ ЭТО ПОЛНОЕ ФАТАЛИТИ"
+    
+    await message.reply(msg)
+    # ===== КОНЕЦ МОТИВАЦИОННОГО СООБЩЕНИЯ =====
 
     save_data(db)
 
@@ -580,7 +635,9 @@ async def raid_info(message: types.Message):
         time_str = f"⏳ До рейда: {hours} ч {minutes} мин"
     
     members = current_raid["members"]
-    members_str = "\n".join(members) if members else "❌ Никто не записался"
+    # Убираем @ для отображения
+    members_clean = [m.replace("@", "") for m in members]
+    members_str = "\n".join(members_clean) if members_clean else "❌ Никто не записался"
     
     msg = (
         f"📋 **ИНФОРМАЦИЯ О РЕЙДЕ**\n\n"
@@ -727,12 +784,57 @@ async def fix_score(message: types.Message):
         if data["username"] == username:
             day_num = str(get_season_day())
             old_score = data["history"].get(day_num)
+            
+            # ===== ОТМЕНЯЕМ СТАРОЕ НАЧИСЛЕНИЕ БАНКА =====
+            if old_score is not None and data.get("last_bank_accrual_day") == day_num:
+                # Определяем, сколько было начислено/списано в прошлый раз
+                old_delta = 0
+                if old_score == 16:
+                    old_delta = 1.0
+                elif 13 <= old_score <= 14:
+                    old_delta = 0.5
+                elif 11 <= old_score <= 12:
+                    old_delta = 0.25
+                elif 8 <= old_score <= 9:
+                    old_delta = -0.25
+                elif 6 <= old_score <= 7:
+                    old_delta = -0.5
+                elif old_score <= 5:
+                    old_delta = -1.0
+                
+                # Откатываем банк
+                data["bank"] = round(data.get("bank", 0) - old_delta, 2)
+                
+                # Не уходим в минус
+                if data["bank"] < 0:
+                    data["bank"] = 0
+                
+                # Сбрасываем флаг, чтобы можно было начислить заново
+                data["last_bank_accrual_day"] = None
+            
+            # ===== ЗАПИСЫВАЕМ НОВОЕ ЗНАЧЕНИЕ =====
             data["history"][day_num] = new_score
             data["today_score"] = new_score
             
-            # Пересчитываем предупреждения и прогулы (для простоты оставляем старые)
+            # ===== НАЧИСЛЯЕМ БАНК ЗА НОВОЕ ЗНАЧЕНИЕ =====
+            new_delta = accrue_bank(data, new_score)
+            
             save_data(db)
-            await message.reply(f"✅ {username}: {old_score} → {new_score} исправлено.")
+            
+            # Формируем ответ
+            bank_info = ""
+            if new_delta > 0:
+                bank_info = f"\n🏦 В банк начислено: +{new_delta} пт. Баланс: {data['bank']} пт"
+            elif new_delta < 0:
+                bank_info = f"\n🏦 Из банка списано: {new_delta} пт. Баланс: {data['bank']} пт"
+            elif data.get("bank_blocked_until"):
+                bank_info = f"\n⛔ Начисление в банк заблокировано"
+            else:
+                bank_info = f"\n🏦 Банк без изменений. Баланс: {data['bank']} пт"
+            
+            await message.reply(
+                f"✅ {username}: {old_score} → {new_score} исправлено.{bank_info}"
+            )
             return
     
     await message.reply(f"❌ {username} не найден.")
@@ -921,7 +1023,7 @@ async def create_raid(message: types.Message):
     }
     
     await message.reply(
-        f"🚀 Рейд создан на **{hour:02d}:{minute:02d} МСК**!\n"
+        f"🚀 Рейд создан на {hour:02d}:{minute:02d} МСК!\n"
         f"📝 Записывайтесь командой: `/+рейд`"
     )
     
@@ -949,13 +1051,42 @@ async def show_roster(message: types.Message):
         await message.reply("❌ В клане пока нет игроков.")
         return
     
-    text = "👥 СОСТАВ КЛАНА:\n\n"
+    day_num = str(get_season_day())
+    
+    # Собираем игроков
+    players = []
     for uid, data in users.items():
         clean_username = data['username'].replace('@', '')
-        text += f"{clean_username} — сегодня: {data['today_score']}/{MAX_SCORE}\n"
+        today_history = data["history"].get(day_num)
+        today_score = data['today_score']
+        players.append((clean_username, today_score, today_history))
+    
+    # Сортируем: сначала отыгравшие (по убыванию очков), потом неотыгравшие
+    players.sort(key=lambda x: (x[2] is None, -x[1] if x[1] is not None else 0))
+    
+    text = "👥 СОСТАВ КЛАНА:\n\n"
+    for username, score, today_history in players:
+        if today_history is None:
+            # Не отыграл — без иконки
+            text += f"{username}\n"
+        else:
+            # Отыграл — ставим иконку
+            if score == 16:
+                icon = "❤️‍🔥"
+            elif 11 <= score <= 15:
+                icon = "❤️"
+            elif score == 10:
+                icon = "✅"
+            elif 5 <= score <= 9:
+                icon = "⚠️"
+            elif 1 <= score <= 4:
+                icon = "❌"
+            else:  # 0
+                icon = "💀"
+            
+            text += f"{username} — {score}/{MAX_SCORE} {icon}\n"
     
     await message.reply(text)
-    
 # ===================================================
 # 7. ФОНОВАЯ ЗАДАЧА (ОБНУЛЕНИЕ В 00:00)
 # ===================================================
@@ -1083,14 +1214,14 @@ async def send_raid_notification():
     
     if members:
         msg = (
-            f"🚀 **РЕЙД ЧЕРЕЗ 5 МИНУТ!** (в {current_raid['time']} МСК)\n\n"
-            f"👥 **Участники ({len(members)} чел.):**\n"
+            f"🚀 РЕЙД ЧЕРЕЗ 5 МИНУТ! (в {current_raid['time']} МСК)\n\n"
+            f"👥 Участники ({len(members)} чел.):\n"
             + "\n".join(members)
         )
     else:
         msg = (
-            f"⚠️ **РЕЙД ЧЕРЕЗ 5 МИНУТ!** (в {current_raid['time']} МСК)\n\n"
-            f"❌ **Никто не записался!** Записывайтесь: `/+рейд`"
+            f"⚠️ РЕЙД ЧЕРЕЗ 5 МИНУТ! (в {current_raid['time']} МСК)\n\n"
+            f"❌ Никто не записался! Записывайтесь: /+рейд "
         )
     
     await bot.send_message(CHAT_ID, msg)
@@ -1115,10 +1246,30 @@ async def main():
     print("🚀 Бот запущен!")
     print(f"📅 Текущий день сезона: {get_season_day()}")
     
-    # Запускаем фоновую задачу для уведомлений (каждую минуту)
+    # ===== ЖЁСТКАЯ ЗАЩИТА ОТ WEBHOOK =====
+    try:
+        # 1. Удаляем webhook
+        await bot.delete_webhook(drop_pending_updates=True)
+        print("✅ Webhook удалён")
+        
+        # 2. Ждём 3 секунды, чтобы Telegram успел обработать
+        await asyncio.sleep(3)
+        
+        # 3. Проверяем, что webhook точно удалён
+        info = await bot.get_webhook_info()
+        if info.url:
+            print(f"⚠️ Webhook всё ещё активен: {info.url}")
+            # Пробуем ещё раз
+            await bot.delete_webhook(drop_pending_updates=True)
+            await asyncio.sleep(3)
+        else:
+            print("✅ Webhook подтверждён как удалённый")
+    except Exception as e:
+        print(f"⚠️ Ошибка при удалении webhook: {e}")
+    # ===== КОНЕЦ ЗАЩИТЫ =====
+    
+    # Запускаем фоновую задачу
     asyncio.create_task(background_tasks())
     
+    # Запускаем polling
     await dp.start_polling(bot)
-
-if __name__ == "__main__":
-    asyncio.run(main())
