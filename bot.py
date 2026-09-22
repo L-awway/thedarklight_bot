@@ -2,7 +2,6 @@ import asyncio
 import logging
 import json
 import os
-import random
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from datetime import datetime, timedelta
@@ -270,6 +269,7 @@ async def report_score(message: types.Message):
     save_data(db)
     
     # Начисляем банк
+        # Начисляем банк
     accrued = accrue_bank(user_data, score)
     if accrued > 0:
         await message.reply(f"🏦 В банк начислено: +{accrued} пт. Баланс: {user_data['bank']} пт")
@@ -295,34 +295,6 @@ async def report_score(message: types.Message):
             )
     else:
         await message.reply(f"✅ {user_data['username']} — {score}/{MAX_SCORE}!")
-
-    # ===== МОТИВАЦИОННОЕ СООБЩЕНИЕ =====
-    if score == 16:
-        msg = random.choice([
-            "🔥 Только победы достойны твоего имени!",
-            "🔥 Ты оформил серию из одних побед!"
-        ])
-    elif score == 14:
-        msg = "✊ Сегодня ты непобедим, присылай свой бой с ничьей!"
-    elif score == 13:
-        msg = "😔 Враг повергнул тебя единожды(, присылай ход этого поражения!"
-    elif score == 12:
-        msg = "🤝 У тебя ничьи в клановых сражениях, хорошо не поражения, но прислать ход боя, где ты не одержал победу стоит"
-    elif score == 11:
-        msg = "⚔️ Где-то ты не одержал победы, присылай этот бой"
-    elif 7 <= score <= 10:
-        msg = "📉 Где-то ты проиграл. И, наверное, сыграл вничью? - присылай бои!"
-    elif score == 6:
-        msg = "🚨 Ты проиграл два сражения - срочно пришли их!"
-    elif score == 5:
-        msg = "🆘 Либо у тебя победа и ничья с поражениями, либо вообще их три 0-0! - анализ этих боёв необходим!"
-    elif 1 <= score <= 4:
-        msg = "💀 Мало хороших боёв/// - ты знаешь что делать"
-    else:  # score == 0
-        msg = "☠️ ЭТО ПОЛНОЕ ФАТАЛИТИ"
-    
-    await message.reply(msg)
-    # ===== КОНЕЦ МОТИВАЦИОННОГО СООБЩЕНИЯ =====
 
     save_data(db)
 
